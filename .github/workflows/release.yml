@@ -24,13 +24,24 @@ jobs:
       - name: Grant Execute Permission to Gradle
         run: chmod +x gradlew
 
-      - name: Build Release APKs
+      - name: Decode Android Keystore
+        run: |
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > app/release.keystore
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+
+      - name: Build and Sign Release APKs
         run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/app-release-unsigned.apk # Adjust path if your app module has a different name
+          files: app/build/outputs/apk/release/app-release.apk
           draft: false
           prerelease: false
         env:
