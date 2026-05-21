@@ -1,5 +1,7 @@
 # DrawThings (Image Editor)
 
+<img src="assets/app-showcase.png" style="width: 50%; height: auto;">
+
 Jetpack Compose Android app that lets you pick an image and draw lightweight annotations on top (freehand pencil + hollow circles), then export the result to the device gallery.
 
 > The functionality described here is based on `app/src/main/java/com/example/drawthings/ImageEditorScreen.kt`.
