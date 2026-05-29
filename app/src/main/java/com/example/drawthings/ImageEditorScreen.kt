@@ -569,7 +569,85 @@ fun exportImage(
     overlayColor: Color,
     overlayBgColor: Color
 ) {
-    val resultBmp = nativeBitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+    fun android.graphics.Bitmap.copyToConfig(config: android.graphics.Bitmap.Config): android.graphics.Bitmap {
+        return if (this.config == config) this else this.copy(config, true)
+    }
+
+    fun buildScaledBitmapIfNeeded(bmp: android.graphics.Bitmap, maxDimension: Int): android.graphics.Bitmap {
+        val w = bmp.width
+        val h = bmp.height
+        val max = maxOf(w, h)
+        if (max <= maxDimension) return bmp
+
+        val scale = maxDimension.toFloat() / max.toFloat()
+        val newW = (w * scale).toInt().coerceAtLeast(1)
+        val newH = (h * scale).toInt().coerceAtLeast(1)
+
+        return android.graphics.Bitmap.createScaledBitmap(bmp, newW, newH, true)
+    }
+
+    fun encodeToBytes(
+        bmp: android.graphics.Bitmap,
+        format: android.graphics.Bitmap.CompressFormat,
+        quality: Int
+    ): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(format, quality, out)
+        return out.toByteArray()
+    }
+
+    data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: String)
+
+    fun encodeBestUnderLimit(
+        source: android.graphics.Bitmap,
+        maxBytes: Int
+    ): Encoded {
+        // Prefer lossy formats first.
+        val candidates = listOf(
+            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY to "image/webp" to ".webp",
+            android.graphics.Bitmap.CompressFormat.JPEG to "image/jpeg" to ".jpg",
+            android.graphics.Bitmap.CompressFormat.WEBP to "image/webp" to ".webp", // fallback (may include alpha depending on source)
+            android.graphics.Bitmap.CompressFormat.PNG to "image/png" to ".png"
+        )
+
+        // Try multiple qualities (step down) and keep the best match.
+        val qualities = listOf(95, 85, 75, 65, 55, 45, 35, 25, 15)
+
+        var best: Encoded? = null
+
+        for ((format, mimeExt1, ext) in candidates) {
+            for (q in qualities) {
+                val bytes = encodeToBytes(source, format, q)
+                val encoded = Encoded(bytes, mimeExt1, ext)
+
+                // Update best (closest under limit, or smallest overall if nothing fits)
+                val under = bytes.size <= maxBytes
+                if (best == null) {
+                    best = encoded
+                } else {
+                    val bestUnder = best!!.bytes.size <= maxBytes
+                    if (under) {
+                        if (!bestUnder || bytes.size > best!!.bytes.size) best = encoded
+                    } else {
+                        if (!bestUnder && bytes.size < best!!.bytes.size) best = encoded
+                    }
+                }
+
+                if (under) {
+                    // For this ordered candidate list, first success is good enough.
+                    return encoded
+                }
+            }
+        }
+
+        return best ?: Encoded(ByteArray(0), "image/png", ".png")
+    }
+
+    // 1) Render overlay/draw actions into a mutable result bitmap.
+    val resultBmp = nativeBitmap
+        .copyToConfig(android.graphics.Bitmap.Config.ARGB_8888)
+        .copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+
     val canvas = android.graphics.Canvas(resultBmp)
     
     val scaleX = resultBmp.width.toFloat() / canvasSize.width.toFloat()
@@ -694,16 +772,25 @@ fun exportImage(
         }
     }
 
+    // 2) Downscale and encode with a size budget.
+    val maxBytes = 5 * 1024 * 1024 // 5 MiB
+    val downscaled = buildScaledBitmapIfNeeded(resultBmp, maxDimension = 2560)
+
+    val encoded = encodeBestUnderLimit(downscaled, maxBytes)
+
+    // 3) Write to MediaStore with correct MIME and extension.
+    val filename = "Edited_${System.currentTimeMillis()}${encoded.extension}"
     val contentValues = ContentValues().apply {
-        put(MediaStore.Images.Media.DISPLAY_NAME, "Edited_${System.currentTimeMillis()}.png")
-        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+        put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+        put(MediaStore.Images.Media.MIME_TYPE, encoded.mimeType)
         put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
     }
-    
+
     val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-    uri?.let {
-        context.contentResolver.openOutputStream(it)?.use { out ->
-            resultBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+    uri?.let { outUri ->
+        context.contentResolver.openOutputStream(outUri)?.use { out ->
+            out.write(encoded.bytes)
+            out.flush()
         }
         Toast.makeText(context, "Saved to Gallery!", Toast.LENGTH_SHORT).show()
     }
