@@ -7,6 +7,10 @@ import android.graphics.Matrix
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,7 +27,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,16 +50,23 @@ import kotlin.math.sin
 
 // --- DATA MODELS ---
 
-enum class Tool { DRAW, CIRCLE, TEXT }
+enum class Tool { DRAW, LINE, CIRCLE, TEXT }
 
 sealed class DrawAction {
-        data class DrawPath(
+    data class DrawPath(
         val path: Path,
         val color: Color,
         val strokeWidth: Float,
         val isSmooth: Boolean,
         val hasArrow: Boolean,
         val points: List<Offset>
+    ) : DrawAction()
+
+    data class StraightLine(
+        val start: Offset,
+        val end: Offset,
+        val color: Color,
+        val strokeWidth: Float
     ) : DrawAction()
 
     data class HollowCircle(
@@ -91,14 +101,14 @@ fun ImageEditorScreen() {
     var actions by remember { mutableStateOf(listOf<DrawAction>()) }
     var selectedTool by remember { mutableStateOf(Tool.DRAW) }
 
-    // Constants
-    val globalStrokeWidth = 10f
+    // Shared stroke width (pen + circles + line)
+    var strokeWidth by remember { mutableFloatStateOf(10f) }
 
     // Tool Configurations
     var drawColor by remember { mutableStateOf(Color.Red) }
     var drawArrow by remember { mutableStateOf(false) }
     var circleColor by remember { mutableStateOf(Color.Red) }
-    
+
     // Text Tool Configurations
     var toolTextString by remember { mutableStateOf("Sample Text") }
     var toolTextColor by remember { mutableStateOf(Color.White) }
@@ -113,49 +123,60 @@ fun ImageEditorScreen() {
     var borderColor by remember { mutableStateOf(Color.Red) }
 
     // Live Gestures State
-    var currentPoints by remember { mutableStateOf(listOf<Offset>()) }
+    var currentPoints by remember { mutableStateOf(listOf<Offset>()) } // freehand
+    var currentLineStart by remember { mutableStateOf<Offset?>(null) }
+    var currentLineEnd by remember { mutableStateOf<Offset?>(null) }
     var currentCircleCenter by remember { mutableStateOf<Offset?>(null) }
     var currentCircleRadius by remember { mutableFloatStateOf(0f) }
     var currentTextPosition by remember { mutableStateOf<Offset?>(null) }
 
+
     // Tab Navigation State
-    val tabs = listOf("Draw", "Circle", "Text", "Overlay")
+    val tabs = listOf("Draw", "Line", "Circle", "Text", "Overlay")
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
-    val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        uri?.let {
-            coroutineScope.launch(Dispatchers.IO) {
-                val rotation = try {
-                    context.contentResolver.openInputStream(it)?.use { stream ->
-                        val exif = android.media.ExifInterface(stream)
-                        when (exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
-                            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                            else -> 0f
+    val pickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            uri?.let {
+                coroutineScope.launch(Dispatchers.IO) {
+                    val rotation = try {
+                        context.contentResolver.openInputStream(it)?.use { stream ->
+                            val exif = android.media.ExifInterface(stream)
+                            when (exif.getAttributeInt(
+                                android.media.ExifInterface.TAG_ORIENTATION,
+                                android.media.ExifInterface.ORIENTATION_NORMAL
+                            )) {
+                                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                                else -> 0f
+                            }
+                        } ?: 0f
+                    } catch (_: Exception) {
+                        0f
+                    }
+
+                    val bmp = context.contentResolver.openInputStream(it)?.use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+
+                    if (bmp != null) {
+                        val finalBmp = if (rotation != 0f) {
+                            val matrix = Matrix().apply { postRotate(rotation) }
+                            android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                        } else bmp
+
+                        withContext(Dispatchers.Main) {
+                            nativeBitmap = finalBmp
+                            imageBitmap = finalBmp.asImageBitmap()
+                            actions = emptyList()
                         }
-                    } ?: 0f
-                } catch (e: Exception) { 0f }
-
-                val bmp = context.contentResolver.openInputStream(it)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
-                }
-
-                if (bmp != null) {
-                    val finalBmp = if (rotation != 0f) {
-                        val matrix = Matrix().apply { postRotate(rotation) }
-                        android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
-                    } else bmp
-
-                    withContext(Dispatchers.Main) {
-                        nativeBitmap = finalBmp
-                        imageBitmap = finalBmp.asImageBitmap()
-                        actions = emptyList() 
                     }
                 }
             }
         }
-    }
+    )
 
     Surface(
         modifier = Modifier
@@ -164,11 +185,10 @@ fun ImageEditorScreen() {
         color = MaterialTheme.colorScheme.background
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            
             // --- TOP AREA: CANVAS (65% Height) ---
             Box(
                 modifier = Modifier
-                    .weight(0.65f) 
+                    .weight(0.65f)
                     .fillMaxWidth()
                     .background(Color.DarkGray),
                 contentAlignment = Alignment.Center
@@ -179,14 +199,14 @@ fun ImageEditorScreen() {
                         modifier = Modifier
                             .aspectRatio(ratio)
                             .fillMaxSize()
-                            .clipToBounds() 
+                            .clipToBounds()
                     ) {
                         Image(
                             bitmap = imageBitmap!!,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize()
                         )
-                        
+
                         Canvas(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -196,7 +216,13 @@ fun ImageEditorScreen() {
                                         onDragStart = { offset ->
                                             when (selectedTool) {
                                                 Tool.DRAW -> currentPoints = listOf(offset)
+                                                Tool.LINE -> {
+                                                    currentLineStart = offset
+                                                    currentLineEnd = offset
+                                                }
+
                                                 Tool.CIRCLE -> {
+
                                                     currentCircleCenter = offset
                                                     currentCircleRadius = 0f
                                                 }
@@ -207,9 +233,13 @@ fun ImageEditorScreen() {
                                             change.consume()
                                             when (selectedTool) {
                                                 Tool.DRAW -> currentPoints = currentPoints + change.position
+                                                Tool.LINE -> {
+                                                    currentLineEnd = change.position
+                                                }
+
                                                 Tool.CIRCLE -> {
-                                                    currentCircleCenter?.let { 
-                                                        currentCircleRadius = (change.position - it).getDistance() 
+                                                    currentCircleCenter?.let {
+                                                        currentCircleRadius = (change.position - it).getDistance()
                                                     }
                                                 }
                                                 Tool.TEXT -> currentTextPosition = change.position
@@ -226,30 +256,62 @@ fun ImageEditorScreen() {
                                                             }
                                                         }
                                                         actions = actions + DrawAction.DrawPath(
-                                                            path = path, color = drawColor, strokeWidth = globalStrokeWidth,
-                                                            isSmooth = true, hasArrow = drawArrow, points = currentPoints.toList()
+                                                            path = path,
+                                                            color = drawColor,
+                                                            strokeWidth = strokeWidth,
+                                                            isSmooth = true,
+                                                            hasArrow = drawArrow,
+                                                            points = currentPoints.toList()
                                                         )
                                                     }
                                                     currentPoints = emptyList()
                                                 }
+
+                                Tool.LINE -> {
+                                    val start = currentLineStart
+                                    val end = currentLineEnd
+
+                                                    if (start != null && end != null && start != end) {
+                                                        actions = actions + DrawAction.StraightLine(
+                                                            start = start,
+                                                            end = end,
+                                                            color = drawColor,
+                                                            strokeWidth = strokeWidth
+                                                        )
+                                                    }
+                                                }
+
+
                                                 Tool.CIRCLE -> {
                                                     if (currentCircleCenter != null) {
                                                         actions = actions + DrawAction.HollowCircle(
-                                                            currentCircleCenter!!, currentCircleRadius, circleColor, globalStrokeWidth
+                                                            center = currentCircleCenter!!,
+                                                            radius = currentCircleRadius,
+                                                            color = circleColor,
+                                                            strokeWidth = strokeWidth
                                                         )
                                                     }
                                                     currentCircleCenter = null
                                                 }
+
                                                 Tool.TEXT -> {
                                                     if (currentTextPosition != null && toolTextString.isNotEmpty()) {
                                                         actions = actions + DrawAction.DrawText(
-                                                            text = toolTextString, position = currentTextPosition!!,
-                                                            color = toolTextColor, bgColor = toolTextBgColor, textSize = toolTextSize
+                                                            text = toolTextString,
+                                                            position = currentTextPosition!!,
+                                                            color = toolTextColor,
+                                                            bgColor = toolTextBgColor,
+                                                            textSize = toolTextSize
                                                         )
                                                     }
                                                     currentTextPosition = null
                                                 }
                                             }
+                                            // clear line state
+                                            currentLineStart = null
+                                            currentLineEnd = null
+                                            currentPoints = emptyList()
+
                                         }
                                     )
                                 }
@@ -259,24 +321,44 @@ fun ImageEditorScreen() {
                                 when (action) {
                                     is DrawAction.DrawPath -> {
                                         drawPath(
-                                            path = action.path, color = action.color,
+                                            path = action.path,
+                                            color = action.color,
                                             style = Stroke(
-                                                width = action.strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round,
+                                                width = action.strokeWidth,
+                                                cap = StrokeCap.Round,
+                                                join = StrokeJoin.Round,
                                                 pathEffect = if (action.isSmooth) PathEffect.cornerPathEffect(50f) else null
                                             )
                                         )
                                         if (action.hasArrow) drawArrow(action.points, action.color, action.strokeWidth)
                                     }
-                                    is DrawAction.HollowCircle -> {
-                                        drawCircle(
-                                            color = action.color, radius = action.radius, 
-                                            center = action.center, style = Stroke(width = action.strokeWidth)
+
+                                    is DrawAction.StraightLine -> {
+                                        drawLine(
+                                            color = action.color,
+                                            start = action.start,
+                                            end = action.end,
+                                            strokeWidth = action.strokeWidth,
+                                            cap = StrokeCap.Round
                                         )
                                     }
+
+                                    is DrawAction.HollowCircle -> {
+                                        drawCircle(
+                                            color = action.color,
+                                            radius = action.radius,
+                                            center = action.center,
+                                            style = Stroke(width = action.strokeWidth)
+                                        )
+                                    }
+
                                     is DrawAction.DrawText -> {
                                         drawTextWithBackground(
-                                            text = action.text, position = action.position,
-                                            textColor = action.color, bgColor = action.bgColor, textSize = action.textSize
+                                            text = action.text,
+                                            position = action.position,
+                                            textColor = action.color,
+                                            bgColor = action.bgColor,
+                                            textSize = action.textSize
                                         )
                                     }
                                 }
@@ -291,28 +373,53 @@ fun ImageEditorScreen() {
                                             for (i in 1 until currentPoints.size) lineTo(currentPoints[i].x, currentPoints[i].y)
                                         }
                                         drawPath(
-                                            path = livePath, color = drawColor,
+                                            path = livePath,
+                                            color = drawColor,
                                             style = Stroke(
-                                                width = globalStrokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round,
+                                                width = strokeWidth,
+                                                cap = StrokeCap.Round,
+                                                join = StrokeJoin.Round,
                                                 pathEffect = PathEffect.cornerPathEffect(50f)
                                             )
                                         )
-                                        if (drawArrow) drawArrow(currentPoints, drawColor, globalStrokeWidth)
+                                        if (drawArrow) drawArrow(currentPoints, drawColor, strokeWidth)
                                     }
                                 }
-                                Tool.CIRCLE -> {
-                                    if (currentCircleCenter != null) {
-                                        drawCircle(
-                                            color = circleColor, radius = currentCircleRadius, 
-                                            center = currentCircleCenter!!, style = Stroke(width = globalStrokeWidth)
+
+                                Tool.LINE -> {
+                                    val start = currentLineStart
+                                    val end = currentLineEnd
+                                    if (start != null && end != null && start != end) {
+                                        drawLine(
+                                            color = drawColor,
+                                            start = start,
+                                            end = end,
+                                            strokeWidth = strokeWidth,
+                                            cap = StrokeCap.Round
                                         )
                                     }
                                 }
+
+
+                                Tool.CIRCLE -> {
+                                    if (currentCircleCenter != null) {
+                                        drawCircle(
+                                            color = circleColor,
+                                            radius = currentCircleRadius,
+                                            center = currentCircleCenter!!,
+                                            style = Stroke(width = strokeWidth)
+                                        )
+                                    }
+                                }
+
                                 Tool.TEXT -> {
                                     if (currentTextPosition != null) {
                                         drawTextWithBackground(
-                                            text = toolTextString, position = currentTextPosition!!,
-                                            textColor = toolTextColor, bgColor = toolTextBgColor, textSize = toolTextSize
+                                            text = toolTextString,
+                                            position = currentTextPosition!!,
+                                            textColor = toolTextColor,
+                                            bgColor = toolTextBgColor,
+                                            textSize = toolTextSize
                                         )
                                     }
                                 }
@@ -324,8 +431,11 @@ fun ImageEditorScreen() {
                             }
                             if (overlayText.isNotEmpty()) {
                                 drawTextWithBackground(
-                                    text = overlayText, position = Offset(30f, 100f),
-                                    textColor = overlayColor, bgColor = overlayBgColor, textSize = 80f
+                                    text = overlayText,
+                                    position = Offset(30f, 100f),
+                                    textColor = overlayColor,
+                                    bgColor = overlayBgColor,
+                                    textSize = 80f
                                 )
                             }
                         }
@@ -340,7 +450,7 @@ fun ImageEditorScreen() {
             // --- BOTTOM AREA: CONTROLS (35% Height Window) ---
             Column(
                 modifier = Modifier
-                    .weight(0.35f) 
+                    .weight(0.35f)
                     .fillMaxWidth()
             ) {
                 // Top Global Actions Bar
@@ -352,23 +462,34 @@ fun ImageEditorScreen() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            pickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        }) { Text("Open") }
-                        
+                        Button(
+                            onClick = {
+                                pickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
+                        ) { Text("Open") }
+
                         Button(
                             onClick = {
                                 nativeBitmap?.let { bmp ->
                                     exportImage(
-                                        context, bmp, actions, canvasSize, 
-                                        borderEnabled, borderColor, overlayText, overlayColor, overlayBgColor
+                                        context,
+                                        bmp,
+                                        actions,
+                                        canvasSize,
+                                        borderEnabled,
+                                        borderColor,
+                                        overlayText,
+                                        overlayColor,
+                                        overlayBgColor
                                     )
                                 }
                             },
                             enabled = nativeBitmap != null
                         ) { Text("Export") }
                     }
-                    
+
                     Button(
                         onClick = { if (actions.isNotEmpty()) actions = actions.dropLast(1) },
                         enabled = actions.isNotEmpty(),
@@ -381,13 +502,14 @@ fun ImageEditorScreen() {
                     tabs.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTabIndex == index,
-                            onClick = { 
-                                selectedTabIndex = index 
-                                // Auto switch tool based on tab
-                                when (index) {
-                                    0 -> selectedTool = Tool.DRAW
-                                    1 -> selectedTool = Tool.CIRCLE
-                                    2 -> selectedTool = Tool.TEXT
+                            onClick = {
+                                selectedTabIndex = index
+                                selectedTool = when (index) {
+                                    0 -> Tool.DRAW
+                                    1 -> Tool.LINE
+                                    2 -> Tool.CIRCLE
+                                    3 -> Tool.TEXT
+                                    else -> selectedTool
                                 }
                             },
                             text = { Text(title) }
@@ -408,27 +530,38 @@ fun ImageEditorScreen() {
                                 Checkbox(checked = drawArrow, onCheckedChange = { drawArrow = it })
                                 Text("Add Arrow Head")
                             }
+                            Spacer(Modifier.height(8.dp))
                             Text("Pen Color", style = MaterialTheme.typography.labelMedium)
                             ColorPickerRow(selectedColor = drawColor) { drawColor = it }
                         }
-                        
-                        1 -> { // CIRCLE
-                            Text("Tip: Drag outward from center to scale", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+
+                        1 -> { // LINE
+                            Spacer(Modifier.height(8.dp))
+                            Text("Line Color", style = MaterialTheme.typography.labelMedium)
+                            ColorPickerRow(selectedColor = drawColor) { drawColor = it }
+                        }
+
+                        2 -> { // CIRCLE
+                            Text(
+                                "Tip: Drag outward from center to scale",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
                             Spacer(Modifier.height(8.dp))
                             Text("Circle Color", style = MaterialTheme.typography.labelMedium)
                             ColorPickerRow(selectedColor = circleColor) { circleColor = it }
                         }
 
-                        2 -> { // TEXT
+                        3 -> { // TEXT
                             OutlinedTextField(
-                                value = toolTextString, 
-                                onValueChange = { toolTextString = it }, 
-                                label = { Text("Text to place") }, 
-                                singleLine = true, 
+                                value = toolTextString,
+                                onValueChange = { toolTextString = it },
+                                label = { Text("Text to place") },
+                                singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(Modifier.height(8.dp))
-                            
+
                             Text("Text Size: ${toolTextSize.toInt()}", style = MaterialTheme.typography.labelMedium)
                             Slider(
                                 value = toolTextSize,
@@ -438,24 +571,24 @@ fun ImageEditorScreen() {
 
                             Text("Text Color", style = MaterialTheme.typography.labelMedium)
                             ColorPickerRow(selectedColor = toolTextColor) { toolTextColor = it }
-                            
+
                             Text("Background Box Color (50% Opacity)", style = MaterialTheme.typography.labelMedium)
                             ColorPickerRow(selectedColor = toolTextBgColor) { toolTextBgColor = it }
                         }
 
-                        3 -> { // OVERLAY & GLOBALS
+                        4 -> { // OVERLAY & GLOBALS
                             Text("Top-Left Overlay", style = MaterialTheme.typography.titleMedium)
                             OutlinedTextField(
-                                value = overlayText, 
-                                onValueChange = { overlayText = it }, 
-                                label = { Text("Text/Number") }, 
-                                singleLine = true, 
+                                value = overlayText,
+                                onValueChange = { overlayText = it },
+                                label = { Text("Text/Number") },
+                                singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(Modifier.height(8.dp))
                             Text("Overlay Text Color", style = MaterialTheme.typography.labelMedium)
                             ColorPickerRow(selectedColor = overlayColor) { overlayColor = it }
-                            
+
                             Text("Overlay Background Box Color", style = MaterialTheme.typography.labelMedium)
                             ColorPickerRow(selectedColor = overlayBgColor) { overlayBgColor = it }
 
@@ -470,7 +603,23 @@ fun ImageEditorScreen() {
                             }
                         }
                     }
-                    Spacer(Modifier.height(16.dp)) 
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Width slider (controls pen + circle + line)
+                    // Show it in all tabs except overlay (still OK if shown; but keep tidy)
+                    if (selectedTabIndex != 4) {
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Text(
+                            "Stroke Width: ${strokeWidth.toInt()}",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Slider(
+                            value = strokeWidth,
+                            onValueChange = { strokeWidth = it },
+                            valueRange = 2f..60f
+                        )
+                    }
                 }
             }
         }
@@ -482,8 +631,15 @@ fun ImageEditorScreen() {
 @Composable
 fun ColorPickerRow(selectedColor: Color, onColorSelected: (Color) -> Unit) {
     val colors = listOf(
-        Color.Red, Color.Blue, Color.Green, Color.Black, 
-        Color.White, Color.Yellow, Color.Magenta, Color.Cyan, Color.Transparent
+        Color.Red,
+        Color.Blue,
+        Color.Green,
+        Color.Black,
+        Color.White,
+        Color.Yellow,
+        Color.Magenta,
+        Color.Cyan,
+        Color.Transparent
     )
     LazyRow(modifier = Modifier.padding(vertical = 4.dp)) {
         items(colors) { color ->
@@ -502,7 +658,7 @@ fun ColorPickerRow(selectedColor: Color, onColorSelected: (Color) -> Unit) {
 fun DrawScope.drawArrow(points: List<Offset>, color: Color, width: Float) {
     if (points.size < 2) return
     val end = points.last()
-    
+
     var prev = points[maxOf(0, points.size - 2)]
     for (i in points.lastIndex downTo 0) {
         if ((end - points[i]).getDistance() > 12f) {
@@ -510,21 +666,33 @@ fun DrawScope.drawArrow(points: List<Offset>, color: Color, width: Float) {
             break
         }
     }
-    
+
     val angle = atan2((end.y - prev.y).toDouble(), (end.x - prev.x).toDouble())
     val arrowLen = 50f
-    
+
     val a1 = angle - Math.PI / 6
     val a2 = angle + Math.PI / 6
-    
-    val p1 = Offset(end.x - (arrowLen * cos(a1)).toFloat(), end.y - (arrowLen * sin(a1)).toFloat())
-    val p2 = Offset(end.x - (arrowLen * cos(a2)).toFloat(), end.y - (arrowLen * sin(a2)).toFloat())
-    
+
+    val p1 = Offset(
+        end.x - (arrowLen * cos(a1)).toFloat(),
+        end.y - (arrowLen * sin(a1)).toFloat()
+    )
+    val p2 = Offset(
+        end.x - (arrowLen * cos(a2)).toFloat(),
+        end.y - (arrowLen * sin(a2)).toFloat()
+    )
+
     drawLine(color, end, p1, strokeWidth = width, cap = StrokeCap.Round)
     drawLine(color, end, p2, strokeWidth = width, cap = StrokeCap.Round)
 }
 
-fun DrawScope.drawTextWithBackground(text: String, position: Offset, textColor: Color, bgColor: Color, textSize: Float) {
+fun DrawScope.drawTextWithBackground(
+    text: String,
+    position: Offset,
+    textColor: Color,
+    bgColor: Color,
+    textSize: Float
+) {
     drawIntoCanvas { canvas ->
         val paint = android.graphics.Paint().apply {
             color = textColor.toArgb()
@@ -535,12 +703,11 @@ fun DrawScope.drawTextWithBackground(text: String, position: Offset, textColor: 
             color = bgColor.copy(alpha = 0.5f).toArgb()
             style = android.graphics.Paint.Style.FILL
         }
-        
+
         val fm = paint.fontMetrics
         val textWidth = paint.measureText(text)
         val padding = textSize * 0.25f
 
-        // Draw 50% Transparent Background
         if (bgColor != Color.Transparent) {
             canvas.nativeCanvas.drawRect(
                 position.x - padding,
@@ -551,7 +718,6 @@ fun DrawScope.drawTextWithBackground(text: String, position: Offset, textColor: 
             )
         }
 
-        // Draw Text
         canvas.nativeCanvas.drawText(text, position.x, position.y, paint)
     }
 }
@@ -596,31 +762,28 @@ fun exportImage(
         return out.toByteArray()
     }
 
-    data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: String)
+data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: String)
 
-    fun encodeBestUnderLimit(
-        source: android.graphics.Bitmap,
-        maxBytes: Int
-    ): Encoded {
-        // Prefer lossy formats first.
+    fun encodeBestUnderLimit(source: android.graphics.Bitmap, maxBytes: Int): Encoded {
         val candidates = listOf(
-            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY to "image/webp" to ".webp",
-            android.graphics.Bitmap.CompressFormat.JPEG to "image/jpeg" to ".jpg",
-            android.graphics.Bitmap.CompressFormat.WEBP to "image/webp" to ".webp", // fallback (may include alpha depending on source)
-            android.graphics.Bitmap.CompressFormat.PNG to "image/png" to ".png"
+            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY to Triple("image/webp", ".webp", 95),
+            android.graphics.Bitmap.CompressFormat.JPEG to Triple("image/jpeg", ".jpg", 90),
+            android.graphics.Bitmap.CompressFormat.WEBP to Triple("image/webp", ".webp", 80),
+            android.graphics.Bitmap.CompressFormat.PNG to Triple("image/png", ".png", 70)
         )
 
-        // Try multiple qualities (step down) and keep the best match.
+        // Quality sweep (kept close to your original approach)
         val qualities = listOf(95, 85, 75, 65, 55, 45, 35, 25, 15)
 
         var best: Encoded? = null
 
-        for ((format, mimeExt1, ext) in candidates) {
+        for ((format, mimeExt) in candidates) {
+            val mimeType = mimeExt.first
+            val ext = mimeExt.second
             for (q in qualities) {
                 val bytes = encodeToBytes(source, format, q)
-                val encoded = Encoded(bytes, mimeExt1, ext)
+                val encoded = Encoded(bytes, mimeType, ext)
 
-                // Update best (closest under limit, or smallest overall if nothing fits)
                 val under = bytes.size <= maxBytes
                 if (best == null) {
                     best = encoded
@@ -633,23 +796,20 @@ fun exportImage(
                     }
                 }
 
-                if (under) {
-                    // For this ordered candidate list, first success is good enough.
-                    return encoded
-                }
+                if (under) return encoded
             }
         }
 
         return best ?: Encoded(ByteArray(0), "image/png", ".png")
     }
 
-    // 1) Render overlay/draw actions into a mutable result bitmap.
+    // Render overlay/draw actions into a mutable result bitmap.
     val resultBmp = nativeBitmap
         .copyToConfig(android.graphics.Bitmap.Config.ARGB_8888)
         .copy(android.graphics.Bitmap.Config.ARGB_8888, true)
 
     val canvas = android.graphics.Canvas(resultBmp)
-    
+
     val scaleX = resultBmp.width.toFloat() / canvasSize.width.toFloat()
     val scaleY = resultBmp.height.toFloat() / canvasSize.height.toFloat()
 
@@ -665,13 +825,14 @@ fun exportImage(
     if (overlayText.isNotEmpty()) {
         val textPaint = android.graphics.Paint().apply {
             color = overlayColor.toArgb()
-            textSize = 80f * scaleX 
+            textSize = 80f * scaleX
             isAntiAlias = true
         }
         val bgPaint = android.graphics.Paint().apply {
             color = overlayBgColor.copy(alpha = 0.5f).toArgb()
             style = android.graphics.Paint.Style.FILL
         }
+
         val fm = textPaint.fontMetrics
         val textWidth = textPaint.measureText(overlayText)
         val padding = 80f * scaleX * 0.25f
@@ -679,7 +840,13 @@ fun exportImage(
         val sy = 100f * scaleY
 
         if (overlayBgColor != Color.Transparent) {
-            canvas.drawRect(sx - padding, sy + fm.ascent - padding, sx + textWidth + padding, sy + fm.descent + padding, bgPaint)
+            canvas.drawRect(
+                sx - padding,
+                sy + fm.ascent - padding,
+                sx + textWidth + padding,
+                sy + fm.descent + padding,
+                bgPaint
+            )
         }
         canvas.drawText(overlayText, sx, sy, textPaint)
     }
@@ -700,7 +867,7 @@ fun exportImage(
                         pathEffect = android.graphics.CornerPathEffect(50f * scaleX)
                     }
                 }
-                
+
                 val androidPath = action.path.asAndroidPath()
                 val scaledPath = android.graphics.Path()
                 androidPath.transform(matrix, scaledPath)
@@ -708,7 +875,6 @@ fun exportImage(
 
                 if (action.hasArrow && action.points.size >= 2) {
                     val end = action.points.last()
-                    
                     var prev = action.points[maxOf(0, action.points.size - 2)]
                     for (i in action.points.lastIndex downTo 0) {
                         if ((end - action.points[i]).getDistance() > 12f) {
@@ -716,24 +882,42 @@ fun exportImage(
                             break
                         }
                     }
-                    
+
                     val sxEnd = end.x * scaleX
                     val syEnd = end.y * scaleY
                     val sxPrev = prev.x * scaleX
                     val syPrev = prev.y * scaleY
-                    
+
                     val angle = atan2((syEnd - syPrev).toDouble(), (sxEnd - sxPrev).toDouble())
                     val arrowLen = 50f * scaleX
-                    
-                    val sx1 = (sxEnd - arrowLen * cos(angle - Math.PI/6)).toFloat()
-                    val sy1 = (syEnd - arrowLen * sin(angle - Math.PI/6)).toFloat()
-                    val sx2 = (sxEnd - arrowLen * cos(angle + Math.PI/6)).toFloat()
-                    val sy2 = (syEnd - arrowLen * sin(angle + Math.PI/6)).toFloat()
+
+                    val sx1 = (sxEnd - arrowLen * cos(angle - Math.PI / 6)).toFloat()
+                    val sy1 = (syEnd - arrowLen * sin(angle - Math.PI / 6)).toFloat()
+                    val sx2 = (sxEnd - arrowLen * cos(angle + Math.PI / 6)).toFloat()
+                    val sy2 = (syEnd - arrowLen * sin(angle + Math.PI / 6)).toFloat()
 
                     canvas.drawLine(sxEnd, syEnd, sx1, sy1, paint)
                     canvas.drawLine(sxEnd, syEnd, sx2, sy2, paint)
                 }
             }
+
+            is DrawAction.StraightLine -> {
+                val paint = android.graphics.Paint().apply {
+                    color = action.color.toArgb()
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = action.strokeWidth * scaleX
+                    isAntiAlias = true
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                }
+                canvas.drawLine(
+                    action.start.x * scaleX,
+                    action.start.y * scaleY,
+                    action.end.x * scaleX,
+                    action.end.y * scaleY,
+                    paint
+                )
+            }
+
             is DrawAction.HollowCircle -> {
                 val paint = android.graphics.Paint().apply {
                     color = action.color.toArgb()
@@ -742,30 +926,39 @@ fun exportImage(
                     isAntiAlias = true
                 }
                 canvas.drawCircle(
-                    action.center.x * scaleX, 
-                    action.center.y * scaleY, 
-                    action.radius * scaleX, 
+                    action.center.x * scaleX,
+                    action.center.y * scaleY,
+                    action.radius * scaleX,
                     paint
                 )
             }
+
             is DrawAction.DrawText -> {
                 val textPaint = android.graphics.Paint().apply {
                     color = action.color.toArgb()
-                    textSize = action.textSize * scaleX 
+                    textSize = action.textSize * scaleX
                     isAntiAlias = true
                 }
                 val bgPaint = android.graphics.Paint().apply {
                     color = action.bgColor.copy(alpha = 0.5f).toArgb()
                     style = android.graphics.Paint.Style.FILL
                 }
+
                 val fm = textPaint.fontMetrics
                 val textWidth = textPaint.measureText(action.text)
                 val padding = action.textSize * scaleX * 0.25f
+
                 val sx = action.position.x * scaleX
                 val sy = action.position.y * scaleY
 
                 if (action.bgColor != Color.Transparent) {
-                    canvas.drawRect(sx - padding, sy + fm.ascent - padding, sx + textWidth + padding, sy + fm.descent + padding, bgPaint)
+                    canvas.drawRect(
+                        sx - padding,
+                        sy + fm.ascent - padding,
+                        sx + textWidth + padding,
+                        sy + fm.descent + padding,
+                        bgPaint
+                    )
                 }
                 canvas.drawText(action.text, sx, sy, textPaint)
             }
@@ -775,15 +968,48 @@ fun exportImage(
     // 2) Downscale and encode with a size budget.
     val maxBytes = 5 * 1024 * 1024 // 5 MiB
     val downscaled = buildScaledBitmapIfNeeded(resultBmp, maxDimension = 2560)
-
     val encoded = encodeBestUnderLimit(downscaled, maxBytes)
 
-    // 3) Write to MediaStore with correct MIME and extension.
-    val filename = "Edited_${System.currentTimeMillis()}${encoded.extension}"
+    // 3) Write to MediaStore
+    val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    val relativePath = "${Environment.DIRECTORY_PICTURES}/drawthings_outputs/$todayStr/"
+
+    val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME)
+    val selection = buildString {
+        append("${MediaStore.Images.Media.RELATIVE_PATH}=?")
+        append(" AND ${MediaStore.Images.Media.DISPLAY_NAME} LIKE '%.%'")
+    }
+    val selectionArgs = arrayOf(relativePath)
+
+    var nextIndex = 1
+    try {
+        context.contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            selectionArgs,
+            null
+        )?.use { cursor ->
+            val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameIdx) ?: continue
+                val dotIdx = name.indexOf('.')
+                if (dotIdx <= 0) continue
+                val numPart = name.substring(0, dotIdx)
+                val n = numPart.toIntOrNull() ?: continue
+                if (n >= nextIndex) nextIndex = n + 1
+            }
+        }
+    } catch (_: Exception) {
+        nextIndex = 1
+    }
+
+    val filename = "$nextIndex${encoded.extension}"
+
     val contentValues = ContentValues().apply {
         put(MediaStore.Images.Media.DISPLAY_NAME, filename)
         put(MediaStore.Images.Media.MIME_TYPE, encoded.mimeType)
-        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
+        put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
     }
 
     val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
@@ -792,6 +1018,7 @@ fun exportImage(
             out.write(encoded.bytes)
             out.flush()
         }
-        Toast.makeText(context, "Saved to Gallery!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Saved to: $relativePath$filename", Toast.LENGTH_SHORT).show()
     }
 }
+
