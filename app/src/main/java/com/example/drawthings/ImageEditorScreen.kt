@@ -747,9 +747,7 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
 
     fun encodeBestUnderLimit(source: android.graphics.Bitmap, maxBytes: Int): Encoded {
         val candidates = listOf(
-            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY to Triple("image/webp", ".webp", 95),
             android.graphics.Bitmap.CompressFormat.JPEG to Triple("image/jpeg", ".jpg", 90),
-            android.graphics.Bitmap.CompressFormat.WEBP to Triple("image/webp", ".webp", 80),
             android.graphics.Bitmap.CompressFormat.PNG to Triple("image/png", ".png", 70)
         )
 
