@@ -619,12 +619,8 @@ fun ColorPickerRow(selectedColor: Color, onColorSelected: (Color) -> Unit) {
         Color.Red,
         Color.Blue,
         Color.Green,
-        Color.Black,
         Color.White,
-        Color.Yellow,
-        Color.Magenta,
-        Color.Cyan,
-        Color.Transparent
+        Color.Black
     )
     LazyRow(modifier = Modifier.padding(vertical = 4.dp)) {
         items(colors) { color ->
