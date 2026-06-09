@@ -634,7 +634,7 @@ Slider(
 
 // --- UI HELPERS ---
 
-fun DrawScope.smoothPath(points: List<Offset>, path: Path) {
+fun smoothPath(points: List<Offset>, path: Path) {
     if (points.size < 2) return
     path.reset()
     path.moveTo(points[0].x, points[0].y)
