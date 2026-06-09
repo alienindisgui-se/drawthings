@@ -266,10 +266,13 @@ onDragEnd = {
                                                         currentLineEnd = null
                                                     } else {
                                                         if (currentPoints.size > 1) {
-                                                            val path = Path().apply {
-                                                                moveTo(currentPoints.first().x, currentPoints.first().y)
+                                                            val path = Path()
+                                                            if (drawSmooth) {
+                                                                smoothPath(currentPoints.toList(), path)
+                                                            } else {
+                                                                path.moveTo(currentPoints.first().x, currentPoints.first().y)
                                                                 for (i in 1 until currentPoints.size) {
-                                                                    lineTo(currentPoints[i].x, currentPoints[i].y)
+                                                                    path.lineTo(currentPoints[i].x, currentPoints[i].y)
                                                                 }
                                                             }
                                                             actions = actions + DrawAction.DrawPath(
@@ -318,14 +321,22 @@ onDragEnd = {
                             actions.forEach { action ->
                                 when (action) {
                                     is DrawAction.DrawPath -> {
+                                        val drawPath = if (action.isSmooth) {
+                                            val smoothPathObj = Path()
+                                            if (action.points.size > 1) {
+                                                smoothPath(action.points, smoothPathObj)
+                                            }
+                                            smoothPathObj
+                                        } else {
+                                            action.path
+                                        }
                                         drawPath(
-                                            path = action.path,
+                                            path = drawPath,
                                             color = action.color,
                                             style = Stroke(
                                                 width = action.strokeWidth,
                                                 cap = StrokeCap.Round,
-                                                join = StrokeJoin.Round,
-                                                pathEffect = if (action.isSmooth) PathEffect.cornerPathEffect(50f) else null
+                                                join = StrokeJoin.Round
                                             )
                                         )
                                         if (action.hasArrow) drawArrow(action.points, action.color, action.strokeWidth)
@@ -369,9 +380,12 @@ onDragEnd = {
                                         }
                                     } else {
                                         if (currentPoints.size > 1) {
-                                            val livePath = Path().apply {
-                                                moveTo(currentPoints.first().x, currentPoints.first().y)
-                                                for (i in 1 until currentPoints.size) lineTo(currentPoints[i].x, currentPoints[i].y)
+                                            val livePath = Path()
+                                            if (drawSmooth) {
+                                                smoothPath(currentPoints.toList(), livePath)
+                                            } else {
+                                                livePath.moveTo(currentPoints.first().x, currentPoints.first().y)
+                                                for (i in 1 until currentPoints.size) livePath.lineTo(currentPoints[i].x, currentPoints[i].y)
                                             }
                                             drawPath(
                                                 path = livePath,
@@ -379,8 +393,7 @@ onDragEnd = {
                                                 style = Stroke(
                                                     width = strokeWidth,
                                                     cap = StrokeCap.Round,
-                                                    join = StrokeJoin.Round,
-                                                    pathEffect = if (drawSmooth) PathEffect.cornerPathEffect(50f) else null
+                                                    join = StrokeJoin.Round
                                                 )
                                             )
                                             if (drawArrow) drawArrow(currentPoints, drawColor, strokeWidth)
@@ -621,6 +634,34 @@ Slider(
 
 // --- UI HELPERS ---
 
+fun DrawScope.smoothPath(points: List<Offset>, path: Path) {
+    if (points.size < 2) return
+    path.reset()
+    path.moveTo(points[0].x, points[0].y)
+    
+    if (points.size == 2) {
+        path.lineTo(points[1].x, points[1].y)
+        return
+    }
+    
+    for (i in 0 until points.size - 1) {
+        val p0 = if (i == 0) points[0] else points[i - 1]
+        val p1 = points[i]
+        val p2 = points[i + 1]
+        
+        if (i == points.size - 2) {
+            path.lineTo(p2.x, p2.y)
+        } else {
+            val p3 = points[i + 2]
+            val control1X = p1.x + (p2.x - p0.x) * 0.25f
+            val control1Y = p1.y + (p2.y - p0.y) * 0.25f
+            val control2X = p2.x - (p3.x - p1.x) * 0.25f
+            val control2Y = p2.y - (p3.y - p1.y) * 0.25f
+            path.cubicTo(control1X, control1Y, control2X, control2Y, p2.x, p2.y)
+        }
+    }
+}
+
 @Composable
 fun ColorPickerRow(selectedColor: Color, onColorSelected: (Color) -> Unit) {
     val colors = listOf(
@@ -850,15 +891,42 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
                     isAntiAlias = true
                     strokeCap = android.graphics.Paint.Cap.ROUND
                     strokeJoin = android.graphics.Paint.Join.ROUND
-                    if (action.isSmooth) {
-                        pathEffect = android.graphics.CornerPathEffect(50f * scaleX)
-                    }
                 }
 
-                val androidPath = action.path.asAndroidPath()
-                val scaledPath = android.graphics.Path()
-                androidPath.transform(matrix, scaledPath)
-                canvas.drawPath(scaledPath, paint)
+                val androidPath: android.graphics.Path = if (action.isSmooth) {
+                    val smoothPath = android.graphics.Path()
+                    if (action.points.size >= 2) {
+                        smoothPath.moveTo(action.points[0].x, action.points[0].y)
+                        if (action.points.size == 2) {
+                            smoothPath.lineTo(action.points[1].x, action.points[1].y)
+                        } else {
+                            for (i in 0 until action.points.size - 1) {
+                                val p0 = if (i == 0) action.points[0] else action.points[i - 1]
+                                val p1 = action.points[i]
+                                val p2 = action.points[i + 1]
+                                
+                                if (i == action.points.size - 2) {
+                                    smoothPath.lineTo(p2.x, p2.y)
+                                } else {
+                                    val p3 = action.points[i + 2]
+                                    val control1X = p1.x + (p2.x - p0.x) * 0.25f
+                                    val control1Y = p1.y + (p2.y - p0.y) * 0.25f
+                                    val control2X = p2.x - (p3.x - p1.x) * 0.25f
+                                    val control2Y = p2.y - (p3.y - p1.y) * 0.25f
+                                    smoothPath.cubicTo(control1X, control1Y, control2X, control2Y, p2.x, p2.y)
+                                }
+                            }
+                        }
+                    }
+                    val scaledSmoothPath = android.graphics.Path()
+                    val smoothMatrix = android.graphics.Matrix()
+                    smoothMatrix.setScale(scaleX, scaleY)
+                    smoothPath.transform(smoothMatrix, scaledSmoothPath)
+                    scaledSmoothPath
+                } else {
+                    action.path.asAndroidPath()
+                }
+                canvas.drawPath(androidPath, paint)
 
                 if (action.hasArrow && action.points.size >= 2) {
                     val end = action.points.last()
