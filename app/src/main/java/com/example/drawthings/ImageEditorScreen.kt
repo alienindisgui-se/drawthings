@@ -101,7 +101,6 @@ fun ImageEditorScreen() {
     var drawColor by remember { mutableStateOf(Color.Red) }
     var drawArrow by remember { mutableStateOf(false) }
     var drawLineMode by remember { mutableStateOf(false) }
-    var drawSmooth by remember { mutableStateOf(true) }
     var circleColor by remember { mutableStateOf(Color.Red) }
 
     // Text Tool Configurations
@@ -267,19 +266,12 @@ onDragEnd = {
                                                     } else {
                                                         if (currentPoints.size > 1) {
                                                             val path = Path()
-                                                            if (drawSmooth) {
-                                                                smoothPath(currentPoints.toList(), path)
-                                                            } else {
-                                                                path.moveTo(currentPoints.first().x, currentPoints.first().y)
-                                                                for (i in 1 until currentPoints.size) {
-                                                                    path.lineTo(currentPoints[i].x, currentPoints[i].y)
-                                                                }
-                                                            }
+                                                            smoothPath(currentPoints.toList(), path)
                                                             actions = actions + DrawAction.DrawPath(
                                                                 path = path,
                                                                 color = drawColor,
                                                                 strokeWidth = strokeWidth,
-                                                                isSmooth = drawSmooth,
+                                                                isSmooth = true,
                                                                 hasArrow = drawArrow,
                                                                 points = currentPoints.toList()
                                                             )
@@ -321,11 +313,9 @@ onDragEnd = {
                             actions.forEach { action ->
                                 when (action) {
                                     is DrawAction.DrawPath -> {
-                                        val drawPath = if (action.isSmooth) {
+                                        val drawPath = if (action.isSmooth && action.points.size > 1) {
                                             val smoothPathObj = Path()
-                                            if (action.points.size > 1) {
-                                                smoothPath(action.points, smoothPathObj)
-                                            }
+                                            smoothPath(action.points, smoothPathObj)
                                             smoothPathObj
                                         } else {
                                             action.path
@@ -381,12 +371,7 @@ onDragEnd = {
                                     } else {
                                         if (currentPoints.size > 1) {
                                             val livePath = Path()
-                                            if (drawSmooth) {
-                                                smoothPath(currentPoints.toList(), livePath)
-                                            } else {
-                                                livePath.moveTo(currentPoints.first().x, currentPoints.first().y)
-                                                for (i in 1 until currentPoints.size) livePath.lineTo(currentPoints[i].x, currentPoints[i].y)
-                                            }
+                                            smoothPath(currentPoints.toList(), livePath)
                                             drawPath(
                                                 path = livePath,
                                                 color = drawColor,
@@ -531,13 +516,6 @@ onDragEnd = {
                                 Text("Straight Line")
                             }
                             Spacer(Modifier.height(8.dp))
-                            if (!drawLineMode) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = drawSmooth, onCheckedChange = { drawSmooth = it })
-                                    Text("Smooth")
-                                }
-                                Spacer(Modifier.height(8.dp))
-                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = drawArrow, onCheckedChange = { drawArrow = it })
                                 Text("Add Arrow Head")
@@ -893,28 +871,26 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
                     strokeJoin = android.graphics.Paint.Join.ROUND
                 }
 
-                val androidPath: android.graphics.Path = if (action.isSmooth) {
+                val androidPath: android.graphics.Path = if (action.isSmooth && action.points.size > 1) {
                     val smoothPath = android.graphics.Path()
-                    if (action.points.size >= 2) {
-                        smoothPath.moveTo(action.points[0].x, action.points[0].y)
-                        if (action.points.size == 2) {
-                            smoothPath.lineTo(action.points[1].x, action.points[1].y)
-                        } else {
-                            for (i in 0 until action.points.size - 1) {
-                                val p0 = if (i == 0) action.points[0] else action.points[i - 1]
-                                val p1 = action.points[i]
-                                val p2 = action.points[i + 1]
-                                
-                                if (i == action.points.size - 2) {
-                                    smoothPath.lineTo(p2.x, p2.y)
-                                } else {
-                                    val p3 = action.points[i + 2]
-                                    val control1X = p1.x + (p2.x - p0.x) * 0.25f
-                                    val control1Y = p1.y + (p2.y - p0.y) * 0.25f
-                                    val control2X = p2.x - (p3.x - p1.x) * 0.25f
-                                    val control2Y = p2.y - (p3.y - p1.y) * 0.25f
-                                    smoothPath.cubicTo(control1X, control1Y, control2X, control2Y, p2.x, p2.y)
-                                }
+                    smoothPath.moveTo(action.points[0].x, action.points[0].y)
+                    if (action.points.size == 2) {
+                        smoothPath.lineTo(action.points[1].x, action.points[1].y)
+                    } else {
+                        for (i in 0 until action.points.size - 1) {
+                            val p0 = if (i == 0) action.points[0] else action.points[i - 1]
+                            val p1 = action.points[i]
+                            val p2 = action.points[i + 1]
+                            
+                            if (i == action.points.size - 2) {
+                                smoothPath.lineTo(p2.x, p2.y)
+                            } else {
+                                val p3 = action.points[i + 2]
+                                val control1X = p1.x + (p2.x - p0.x) * 0.25f
+                                val control1Y = p1.y + (p2.y - p0.y) * 0.25f
+                                val control2X = p2.x - (p3.x - p1.x) * 0.25f
+                                val control2Y = p2.y - (p3.y - p1.y) * 0.25f
+                                smoothPath.cubicTo(control1X, control1Y, control2X, control2Y, p2.x, p2.y)
                             }
                         }
                     }
