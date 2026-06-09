@@ -50,7 +50,7 @@ import kotlin.math.sin
 
 // --- DATA MODELS ---
 
-enum class Tool { DRAW, LINE, CIRCLE, TEXT }
+enum class Tool { DRAW, CIRCLE, TEXT }
 
 sealed class DrawAction {
     data class DrawPath(
@@ -60,13 +60,6 @@ sealed class DrawAction {
         val isSmooth: Boolean,
         val hasArrow: Boolean,
         val points: List<Offset>
-    ) : DrawAction()
-
-    data class StraightLine(
-        val start: Offset,
-        val end: Offset,
-        val color: Color,
-        val strokeWidth: Float
     ) : DrawAction()
 
     data class HollowCircle(
@@ -97,7 +90,7 @@ fun ImageEditorScreen() {
     var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
-    // Action State
+// Action State
     var actions by remember { mutableStateOf(listOf<DrawAction>()) }
     var selectedTool by remember { mutableStateOf(Tool.DRAW) }
 
@@ -107,6 +100,7 @@ fun ImageEditorScreen() {
     // Tool Configurations
     var drawColor by remember { mutableStateOf(Color.Red) }
     var drawArrow by remember { mutableStateOf(false) }
+    var drawLineMode by remember { mutableStateOf(false) }
     var circleColor by remember { mutableStateOf(Color.Red) }
 
     // Text Tool Configurations
@@ -130,9 +124,8 @@ fun ImageEditorScreen() {
     var currentCircleRadius by remember { mutableFloatStateOf(0f) }
     var currentTextPosition by remember { mutableStateOf<Offset?>(null) }
 
-
     // Tab Navigation State
-    val tabs = listOf("Draw", "Line", "Circle", "Text", "Overlay")
+    val tabs = listOf("Draw", "Circle", "Text", "Overlay")
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     val pickerLauncher = rememberLauncherForActivityResult(
@@ -215,14 +208,15 @@ fun ImageEditorScreen() {
                                     detectDragGestures(
                                         onDragStart = { offset ->
                                             when (selectedTool) {
-                                                Tool.DRAW -> currentPoints = listOf(offset)
-                                                Tool.LINE -> {
-                                                    currentLineStart = offset
-                                                    currentLineEnd = offset
+                                                Tool.DRAW -> {
+                                                    if (drawLineMode) {
+                                                        currentLineStart = offset
+                                                        currentLineEnd = offset
+                                                    } else {
+                                                        currentPoints = listOf(offset)
+                                                    }
                                                 }
-
                                                 Tool.CIRCLE -> {
-
                                                     currentCircleCenter = offset
                                                     currentCircleRadius = 0f
                                                 }
@@ -232,11 +226,13 @@ fun ImageEditorScreen() {
                                         onDrag = { change, _ ->
                                             change.consume()
                                             when (selectedTool) {
-                                                Tool.DRAW -> currentPoints = currentPoints + change.position
-                                                Tool.LINE -> {
-                                                    currentLineEnd = change.position
+                                                Tool.DRAW -> {
+                                                    if (drawLineMode) {
+                                                        currentLineEnd = change.position
+                                                    } else {
+                                                        currentPoints = currentPoints + change.position
+                                                    }
                                                 }
-
                                                 Tool.CIRCLE -> {
                                                     currentCircleCenter?.let {
                                                         currentCircleRadius = (change.position - it).getDistance()
@@ -245,42 +241,48 @@ fun ImageEditorScreen() {
                                                 Tool.TEXT -> currentTextPosition = change.position
                                             }
                                         },
-                                        onDragEnd = {
+onDragEnd = {
                                             when (selectedTool) {
                                                 Tool.DRAW -> {
-                                                    if (currentPoints.size > 1) {
-                                                        val path = Path().apply {
-                                                            moveTo(currentPoints.first().x, currentPoints.first().y)
-                                                            for (i in 1 until currentPoints.size) {
-                                                                lineTo(currentPoints[i].x, currentPoints[i].y)
+                                                    if (drawLineMode) {
+                                                        val start = currentLineStart
+                                                        val end = currentLineEnd
+                                                        if (start != null && end != null && start != end) {
+                                                            val path = Path().apply {
+                                                                moveTo(start.x, start.y)
+                                                                lineTo(end.x, end.y)
                                                             }
+                                                            actions = actions + DrawAction.DrawPath(
+                                                                path = path,
+                                                                color = drawColor,
+                                                                strokeWidth = strokeWidth,
+                                                                isSmooth = false,
+                                                                hasArrow = drawArrow,
+                                                                points = listOf(start, end)
+                                                            )
                                                         }
-                                                        actions = actions + DrawAction.DrawPath(
-                                                            path = path,
-                                                            color = drawColor,
-                                                            strokeWidth = strokeWidth,
-                                                            isSmooth = true,
-                                                            hasArrow = drawArrow,
-                                                            points = currentPoints.toList()
-                                                        )
-                                                    }
-                                                    currentPoints = emptyList()
-                                                }
-
-                                Tool.LINE -> {
-                                    val start = currentLineStart
-                                    val end = currentLineEnd
-
-                                                    if (start != null && end != null && start != end) {
-                                                        actions = actions + DrawAction.StraightLine(
-                                                            start = start,
-                                                            end = end,
-                                                            color = drawColor,
-                                                            strokeWidth = strokeWidth
-                                                        )
+                                                        currentLineStart = null
+                                                        currentLineEnd = null
+                                                    } else {
+                                                        if (currentPoints.size > 1) {
+                                                            val path = Path().apply {
+                                                                moveTo(currentPoints.first().x, currentPoints.first().y)
+                                                                for (i in 1 until currentPoints.size) {
+                                                                    lineTo(currentPoints[i].x, currentPoints[i].y)
+                                                                }
+                                                            }
+                                                            actions = actions + DrawAction.DrawPath(
+                                                                path = path,
+                                                                color = drawColor,
+                                                                strokeWidth = strokeWidth,
+                                                                isSmooth = true,
+                                                                hasArrow = drawArrow,
+                                                                points = currentPoints.toList()
+                                                            )
+                                                        }
+                                                        currentPoints = emptyList()
                                                     }
                                                 }
-
 
                                                 Tool.CIRCLE -> {
                                                     if (currentCircleCenter != null) {
@@ -307,11 +309,6 @@ fun ImageEditorScreen() {
                                                     currentTextPosition = null
                                                 }
                                             }
-                                            // clear line state
-                                            currentLineStart = null
-                                            currentLineEnd = null
-                                            currentPoints = emptyList()
-
                                         }
                                     )
                                 }
@@ -331,16 +328,6 @@ fun ImageEditorScreen() {
                                             )
                                         )
                                         if (action.hasArrow) drawArrow(action.points, action.color, action.strokeWidth)
-                                    }
-
-                                    is DrawAction.StraightLine -> {
-                                        drawLine(
-                                            color = action.color,
-                                            start = action.start,
-                                            end = action.end,
-                                            strokeWidth = action.strokeWidth,
-                                            cap = StrokeCap.Round
-                                        )
                                     }
 
                                     is DrawAction.HollowCircle -> {
@@ -367,39 +354,38 @@ fun ImageEditorScreen() {
                             // 2. Draw Live Action (while dragging)
                             when (selectedTool) {
                                 Tool.DRAW -> {
-                                    if (currentPoints.size > 1) {
-                                        val livePath = Path().apply {
-                                            moveTo(currentPoints.first().x, currentPoints.first().y)
-                                            for (i in 1 until currentPoints.size) lineTo(currentPoints[i].x, currentPoints[i].y)
-                                        }
-                                        drawPath(
-                                            path = livePath,
-                                            color = drawColor,
-                                            style = Stroke(
-                                                width = strokeWidth,
-                                                cap = StrokeCap.Round,
-                                                join = StrokeJoin.Round,
-                                                pathEffect = PathEffect.cornerPathEffect(50f)
+                                    if (drawLineMode) {
+                                        val start = currentLineStart
+                                        val end = currentLineEnd
+                                        if (start != null && end != null && start != end) {
+                                            drawLine(
+                                                color = drawColor,
+                                                start = start,
+                                                end = end,
+                                                strokeWidth = strokeWidth,
+                                                cap = StrokeCap.Round
                                             )
-                                        )
-                                        if (drawArrow) drawArrow(currentPoints, drawColor, strokeWidth)
+                                        }
+                                    } else {
+                                        if (currentPoints.size > 1) {
+                                            val livePath = Path().apply {
+                                                moveTo(currentPoints.first().x, currentPoints.first().y)
+                                                for (i in 1 until currentPoints.size) lineTo(currentPoints[i].x, currentPoints[i].y)
+                                            }
+                                            drawPath(
+                                                path = livePath,
+                                                color = drawColor,
+                                                style = Stroke(
+                                                    width = strokeWidth,
+                                                    cap = StrokeCap.Round,
+                                                    join = StrokeJoin.Round,
+                                                    pathEffect = PathEffect.cornerPathEffect(50f)
+                                                )
+                                            )
+                                            if (drawArrow) drawArrow(currentPoints, drawColor, strokeWidth)
+                                        }
                                     }
                                 }
-
-                                Tool.LINE -> {
-                                    val start = currentLineStart
-                                    val end = currentLineEnd
-                                    if (start != null && end != null && start != end) {
-                                        drawLine(
-                                            color = drawColor,
-                                            start = start,
-                                            end = end,
-                                            strokeWidth = strokeWidth,
-                                            cap = StrokeCap.Round
-                                        )
-                                    }
-                                }
-
 
                                 Tool.CIRCLE -> {
                                     if (currentCircleCenter != null) {
@@ -506,9 +492,9 @@ fun ImageEditorScreen() {
                                 selectedTabIndex = index
                                 selectedTool = when (index) {
                                     0 -> Tool.DRAW
-                                    1 -> Tool.LINE
-                                    2 -> Tool.CIRCLE
-                                    3 -> Tool.TEXT
+                                    1 -> Tool.CIRCLE
+                                    2 -> Tool.TEXT
+                                    3 -> selectedTool
                                     else -> selectedTool
                                 }
                             },
@@ -527,6 +513,11 @@ fun ImageEditorScreen() {
                     when (selectedTabIndex) {
                         0 -> { // DRAW
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = drawLineMode, onCheckedChange = { drawLineMode = it })
+                                Text("Straight Line")
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = drawArrow, onCheckedChange = { drawArrow = it })
                                 Text("Add Arrow Head")
                             }
@@ -535,13 +526,7 @@ fun ImageEditorScreen() {
                             ColorPickerRow(selectedColor = drawColor) { drawColor = it }
                         }
 
-                        1 -> { // LINE
-                            Spacer(Modifier.height(8.dp))
-                            Text("Line Color", style = MaterialTheme.typography.labelMedium)
-                            ColorPickerRow(selectedColor = drawColor) { drawColor = it }
-                        }
-
-                        2 -> { // CIRCLE
+                        1 -> { // CIRCLE
                             Text(
                                 "Tip: Drag outward from center to scale",
                                 style = MaterialTheme.typography.bodySmall,
@@ -552,7 +537,7 @@ fun ImageEditorScreen() {
                             ColorPickerRow(selectedColor = circleColor) { circleColor = it }
                         }
 
-                        3 -> { // TEXT
+                        2 -> { // TEXT
                             OutlinedTextField(
                                 value = toolTextString,
                                 onValueChange = { toolTextString = it },
@@ -576,7 +561,7 @@ fun ImageEditorScreen() {
                             ColorPickerRow(selectedColor = toolTextBgColor) { toolTextBgColor = it }
                         }
 
-                        4 -> { // OVERLAY & GLOBALS
+                        3 -> { // OVERLAY & GLOBALS
                             Text("Top-Left Overlay", style = MaterialTheme.typography.titleMedium)
                             OutlinedTextField(
                                 value = overlayText,
@@ -608,7 +593,7 @@ fun ImageEditorScreen() {
 
                     // Width slider (controls pen + circle + line)
                     // Show it in all tabs except overlay (still OK if shown; but keep tidy)
-                    if (selectedTabIndex != 4) {
+                    if (selectedTabIndex != 3) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text(
                             "Stroke Width: ${strokeWidth.toInt()}",
@@ -899,23 +884,6 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
                     canvas.drawLine(sxEnd, syEnd, sx1, sy1, paint)
                     canvas.drawLine(sxEnd, syEnd, sx2, sy2, paint)
                 }
-            }
-
-            is DrawAction.StraightLine -> {
-                val paint = android.graphics.Paint().apply {
-                    color = action.color.toArgb()
-                    style = android.graphics.Paint.Style.STROKE
-                    strokeWidth = action.strokeWidth * scaleX
-                    isAntiAlias = true
-                    strokeCap = android.graphics.Paint.Cap.ROUND
-                }
-                canvas.drawLine(
-                    action.start.x * scaleX,
-                    action.start.y * scaleY,
-                    action.end.x * scaleX,
-                    action.end.y * scaleY,
-                    paint
-                )
             }
 
             is DrawAction.HollowCircle -> {
