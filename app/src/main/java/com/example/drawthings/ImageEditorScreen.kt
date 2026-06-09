@@ -101,6 +101,7 @@ fun ImageEditorScreen() {
     var drawColor by remember { mutableStateOf(Color.Red) }
     var drawArrow by remember { mutableStateOf(false) }
     var drawLineMode by remember { mutableStateOf(false) }
+    var drawSmooth by remember { mutableStateOf(true) }
     var circleColor by remember { mutableStateOf(Color.Red) }
 
     // Text Tool Configurations
@@ -275,7 +276,7 @@ onDragEnd = {
                                                                 path = path,
                                                                 color = drawColor,
                                                                 strokeWidth = strokeWidth,
-                                                                isSmooth = true,
+                                                                isSmooth = drawSmooth,
                                                                 hasArrow = drawArrow,
                                                                 points = currentPoints.toList()
                                                             )
@@ -379,7 +380,7 @@ onDragEnd = {
                                                     width = strokeWidth,
                                                     cap = StrokeCap.Round,
                                                     join = StrokeJoin.Round,
-                                                    pathEffect = PathEffect.cornerPathEffect(50f)
+                                                    pathEffect = if (drawSmooth) PathEffect.cornerPathEffect(50f) else null
                                                 )
                                             )
                                             if (drawArrow) drawArrow(currentPoints, drawColor, strokeWidth)
@@ -517,6 +518,13 @@ onDragEnd = {
                                 Text("Straight Line")
                             }
                             Spacer(Modifier.height(8.dp))
+                            if (!drawLineMode) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = drawSmooth, onCheckedChange = { drawSmooth = it })
+                                    Text("Smooth")
+                                }
+                                Spacer(Modifier.height(8.dp))
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = drawArrow, onCheckedChange = { drawArrow = it })
                                 Text("Add Arrow Head")
