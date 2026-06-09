@@ -599,11 +599,11 @@ onDragEnd = {
                             "Stroke Width: ${strokeWidth.toInt()}",
                             style = MaterialTheme.typography.labelMedium
                         )
-                        Slider(
-                            value = strokeWidth,
-                            onValueChange = { strokeWidth = it },
-                            valueRange = 2f..60f
-                        )
+Slider(
+                                value = strokeWidth,
+                                onValueChange = { strokeWidth = it },
+                                valueRange = 5f..10f
+                            )
                     }
                 }
             }
