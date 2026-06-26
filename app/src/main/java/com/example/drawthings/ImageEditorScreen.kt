@@ -112,8 +112,6 @@ fun ImageEditorScreen() {
 
     // Overlay Configurations
     var overlayText by remember { mutableStateOf("") }
-    var overlayColor by remember { mutableStateOf(Color.Red) }
-    var overlayBgColor by remember { mutableStateOf(Color.Black) }
     var borderEnabled by remember { mutableStateOf(false) }
     var borderColor by remember { mutableStateOf(Color.Red) }
 
@@ -421,8 +419,8 @@ onDragEnd = {
                                 drawTextWithBackground(
                                     text = overlayText,
                                     position = Offset(30f, 100f),
-                                    textColor = overlayColor,
-                                    bgColor = overlayBgColor,
+                                    textColor = Color.White,
+                                    bgColor = Color.Black,
                                     textSize = 80f
                                 )
                             }
@@ -468,9 +466,7 @@ onDragEnd = {
                                         canvasSize,
                                         borderEnabled,
                                         borderColor,
-                                        overlayText,
-                                        overlayColor,
-                                        overlayBgColor
+                                        overlayText
                                     )
                                 }
                             },
@@ -587,12 +583,6 @@ onDragEnd = {
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Overlay Text Color", style = MaterialTheme.typography.labelMedium)
-                            ColorPickerRow(selectedColor = overlayColor) { overlayColor = it }
-
-                            Text("Overlay Background Box Color", style = MaterialTheme.typography.labelMedium)
-                            ColorPickerRow(selectedColor = overlayBgColor) { overlayBgColor = it }
-
                             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -834,9 +824,7 @@ fun exportImage(
     canvasSize: IntSize,
     borderEnabled: Boolean,
     borderColor: Color,
-    overlayText: String,
-    overlayColor: Color,
-    overlayBgColor: Color
+    overlayText: String
 ) {
     fun android.graphics.Bitmap.copyToConfig(config: android.graphics.Bitmap.Config): android.graphics.Bitmap {
         return if (this.config == config) this else this.copy(config, true)
@@ -924,7 +912,7 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
     }
 
     if (overlayText.isNotEmpty()) {
-        canvas.drawTextScaled(overlayText, Offset(30f, 100f), overlayColor, overlayBgColor, 80f, scaleX, scaleY)
+        canvas.drawTextScaled(overlayText, Offset(30f, 100f), Color.White, Color.Black, 80f, scaleX, scaleY)
     }
 
     val matrix = Matrix().apply { setScale(scaleX, scaleY) }
