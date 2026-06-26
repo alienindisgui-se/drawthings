@@ -77,3 +77,16 @@ This is an Android Studio / Gradle project.
 2. Sync Gradle.
 3. Run the app on an Android device/emulator.
 
+## Release
+
+When preparing a new version:
+1. Update `versionCode` and `versionName` in `app/build.gradle.kts` under the `defaultConfig` block.
+2. Commit the change, then create a tag matching the version:
+
+```bash
+git flow release start v1.2.3
+```
+
+---
+
+
