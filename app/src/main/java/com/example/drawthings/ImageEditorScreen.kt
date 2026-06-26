@@ -102,6 +102,7 @@ fun ImageEditorScreen() {
     var drawArrow by remember { mutableStateOf(false) }
     var drawLineMode by remember { mutableStateOf(false) }
     var circleColor by remember { mutableStateOf(Color.Red) }
+    var circleSizePreset by remember { mutableIntStateOf(0) }
 
     // Text Tool Configurations
     var toolTextString by remember { mutableStateOf("Sample Text") }
@@ -218,7 +219,7 @@ fun ImageEditorScreen() {
                                                 }
                                                 Tool.CIRCLE -> {
                                                     currentCircleCenter = offset
-                                                    currentCircleRadius = 0f
+                                                    currentCircleRadius = if (circleSizePreset != 0) circleSizePreset * 50f else 0f
                                                 }
                                                 Tool.TEXT -> currentTextPosition = offset
                                             }
@@ -234,8 +235,10 @@ fun ImageEditorScreen() {
                                                     }
                                                 }
                                                 Tool.CIRCLE -> {
-                                                    currentCircleCenter?.let {
-                                                        currentCircleRadius = (change.position - it).getDistance()
+                                                    if (circleSizePreset == 0) {
+                                                        currentCircleCenter?.let {
+                                                            currentCircleRadius = (change.position - it).getDistance()
+                                                        }
                                                     }
                                                 }
                                                 Tool.TEXT -> currentTextPosition = change.position
@@ -525,7 +528,21 @@ onDragEnd = {
                             ColorPickerRow(selectedColor = drawColor) { drawColor = it }
                         }
 
-                        1 -> { // CIRCLE
+                         1 -> { // CIRCLE
+                            Text("Circle Size Preset", style = MaterialTheme.typography.labelMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(1 to "1", 2 to "2", 3 to "3").forEach { (size, label) ->
+                                    val selected = circleSizePreset == size
+                                    Button(
+                                        onClick = { circleSizePreset = if (selected) 0 else size },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                                        ),
+                                        modifier = Modifier.size(40.dp)
+                                    ) { Text("$label", maxLines = 1) }
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
                             Text(
                                 "Tip: Drag outward from center to scale",
                                 style = MaterialTheme.typography.bodySmall,
