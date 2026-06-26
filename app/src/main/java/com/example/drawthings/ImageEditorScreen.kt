@@ -150,10 +150,11 @@ fun ImageEditorScreen() {
     var toolTextBgColor by remember { mutableStateOf(Color.Black) }
     var toolTextSize by remember { mutableFloatStateOf(80f) }
 
-    // Overlay Configurations
+    // Overlay & Global Configurations
     var overlayText by remember { mutableStateOf("") }
     var borderEnabled by remember { mutableStateOf(false) }
     var borderColor by remember { mutableStateOf(Color.Red) }
+    var collageEnabled by remember { mutableStateOf(false) }
 
     // Live Gestures State
     var currentPoints by remember { mutableStateOf(listOf<Offset>()) } // freehand
@@ -594,7 +595,8 @@ fun ImageEditorScreen() {
                                         canvasSize,
                                         borderEnabled,
                                         borderColor,
-                                        overlayText
+                                        overlayText,
+                                        collageEnabled
                                     )
                                 }
                             },
@@ -723,13 +725,20 @@ fun ImageEditorScreen() {
                             Spacer(Modifier.height(8.dp))
                             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = borderEnabled, onCheckedChange = { borderEnabled = it })
-                                Text("Enable Image Border")
-                            }
-                            if (borderEnabled) {
-                                ColorPickerRow(selectedColor = borderColor) { borderColor = it }
-                            }
+                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                 Checkbox(checked = borderEnabled, onCheckedChange = { borderEnabled = it })
+                                 Text("Enable Image Border")
+                             }
+                             if (borderEnabled) {
+                                 ColorPickerRow(selectedColor = borderColor) { borderColor = it }
+                             }
+
+                             HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                 Checkbox(checked = collageEnabled, onCheckedChange = { collageEnabled = it })
+                                 Text("Enable Collage")
+                             }
                         }
                     }
 
@@ -962,7 +971,8 @@ fun exportImage(
     canvasSize: IntSize,
     borderEnabled: Boolean,
     borderColor: Color,
-    overlayText: String
+    overlayText: String,
+    collageEnabled: Boolean
 ) {
     fun android.graphics.Bitmap.copyToConfig(config: android.graphics.Bitmap.Config): android.graphics.Bitmap {
         return if (this.config == config) this else this.copy(config, true)
@@ -1114,9 +1124,23 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
         }
     }
 
+    val finalBmp = if (collageEnabled) {
+        val collageBmp = android.graphics.Bitmap.createBitmap(
+            resultBmp.width * 2,
+            resultBmp.height * 2,
+            android.graphics.Bitmap.Config.ARGB_8888
+        )
+        val collageCanvas = android.graphics.Canvas(collageBmp)
+        collageCanvas.drawBitmap(resultBmp, 0f, 0f, null)
+        collageCanvas.drawBitmap(resultBmp, resultBmp.width.toFloat(), 0f, null)
+        collageCanvas.drawBitmap(resultBmp, 0f, resultBmp.height.toFloat(), null)
+        collageCanvas.drawBitmap(resultBmp, resultBmp.width.toFloat(), resultBmp.height.toFloat(), null)
+        collageBmp
+    } else resultBmp
+
     // 2) Downscale and encode with a size budget.
-    val maxBytes = 3 * 1024 * 1024 // 3 MiB
-    val downscaled = buildScaledBitmapIfNeeded(resultBmp, maxDimension = 2560)
+    val maxBytes = if (collageEnabled) 10 * 1024 * 1024 else 3 * 1024 * 1024 // 10 MiB for collage, 3 MiB normal
+    val downscaled = buildScaledBitmapIfNeeded(finalBmp, maxDimension = if (collageEnabled) 3840 else 2560)
     val encoded = encodeBestUnderLimit(downscaled, maxBytes)
 
     // 3) Write to MediaStore
