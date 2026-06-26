@@ -612,6 +612,30 @@ Slider(
 
 // --- UI HELPERS ---
 
+fun android.graphics.Path.buildSmoothPath(points: List<Offset>) {
+    if (points.size < 2) return
+    moveTo(points[0].x, points[0].y)
+    if (points.size == 2) {
+        lineTo(points[1].x, points[1].y)
+        return
+    }
+    for (i in 0 until points.size - 1) {
+        val p0 = if (i == 0) points[0] else points[i - 1]
+        val p1 = points[i]
+        val p2 = points[i + 1]
+        if (i == points.size - 2) {
+            lineTo(p2.x, p2.y)
+        } else {
+            val p3 = points[i + 2]
+            val control1X = p1.x + (p2.x - p0.x) * 0.25f
+            val control1Y = p1.y + (p2.y - p0.y) * 0.25f
+            val control2X = p2.x - (p3.x - p1.x) * 0.25f
+            val control2Y = p2.y - (p3.y - p1.y) * 0.25f
+            cubicTo(control1X, control1Y, control2X, control2Y, p2.x, p2.y)
+        }
+    }
+}
+
 fun smoothPath(points: List<Offset>, path: Path) {
     if (points.size < 2) return
     path.reset()
@@ -661,6 +685,60 @@ fun ColorPickerRow(selectedColor: Color, onColorSelected: (Color) -> Unit) {
             )
         }
     }
+}
+
+fun strokePaint(
+    color: Color,
+    strokeWidth: Float,
+    scaleX: Float,
+    cap: android.graphics.Paint.Cap? = null,
+    join: android.graphics.Paint.Join? = null
+): android.graphics.Paint =
+    android.graphics.Paint().apply {
+        this.color = color.toArgb()
+        style = android.graphics.Paint.Style.STROKE
+        this.strokeWidth = strokeWidth * scaleX
+        isAntiAlias = true
+        cap?.let { strokeCap = it }
+        join?.let { strokeJoin = it }
+    }
+
+fun android.graphics.Canvas.drawTextScaled(
+    text: String,
+    position: Offset,
+    textColor: Color,
+    bgColor: Color,
+    textSize: Float,
+    scaleX: Float,
+    scaleY: Float
+) {
+    val textPaint = android.graphics.Paint().apply {
+        color = textColor.toArgb()
+        this.textSize = textSize * scaleX
+        isAntiAlias = true
+    }
+    val bgPaint = android.graphics.Paint().apply {
+        color = bgColor.copy(alpha = 0.5f).toArgb()
+        style = android.graphics.Paint.Style.FILL
+    }
+
+    val fm = textPaint.fontMetrics
+    val textWidth = textPaint.measureText(text)
+    val padding = textSize * scaleX * 0.25f
+
+    val sx = position.x * scaleX
+    val sy = position.y * scaleY
+
+    if (bgColor != Color.Transparent) {
+        drawRect(
+            sx - padding,
+            sy + fm.ascent - padding,
+            sx + textWidth + padding,
+            sy + fm.descent + padding,
+            bgPaint
+        )
+    }
+    drawText(text, sx, sy, textPaint)
 }
 
 fun DrawScope.drawArrow(points: List<Offset>, color: Color, width: Float) {
@@ -829,32 +907,7 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
     }
 
     if (overlayText.isNotEmpty()) {
-        val textPaint = android.graphics.Paint().apply {
-            color = overlayColor.toArgb()
-            textSize = 80f * scaleX
-            isAntiAlias = true
-        }
-        val bgPaint = android.graphics.Paint().apply {
-            color = overlayBgColor.copy(alpha = 0.5f).toArgb()
-            style = android.graphics.Paint.Style.FILL
-        }
-
-        val fm = textPaint.fontMetrics
-        val textWidth = textPaint.measureText(overlayText)
-        val padding = 80f * scaleX * 0.25f
-        val sx = 30f * scaleX
-        val sy = 100f * scaleY
-
-        if (overlayBgColor != Color.Transparent) {
-            canvas.drawRect(
-                sx - padding,
-                sy + fm.ascent - padding,
-                sx + textWidth + padding,
-                sy + fm.descent + padding,
-                bgPaint
-            )
-        }
-        canvas.drawText(overlayText, sx, sy, textPaint)
+        canvas.drawTextScaled(overlayText, Offset(30f, 100f), overlayColor, overlayBgColor, 80f, scaleX, scaleY)
     }
 
     val matrix = Matrix().apply { setScale(scaleX, scaleY) }
@@ -862,43 +915,13 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
     for (action in actions) {
         when (action) {
             is DrawAction.DrawPath -> {
-                val paint = android.graphics.Paint().apply {
-                    color = action.color.toArgb()
-                    style = android.graphics.Paint.Style.STROKE
-                    strokeWidth = action.strokeWidth * scaleX
-                    isAntiAlias = true
-                    strokeCap = android.graphics.Paint.Cap.ROUND
-                    strokeJoin = android.graphics.Paint.Join.ROUND
-                }
+                val paint = strokePaint(action.color, action.strokeWidth, scaleX, android.graphics.Paint.Cap.ROUND, android.graphics.Paint.Join.ROUND)
 
                 val androidPath: android.graphics.Path = if (action.isSmooth && action.points.size > 1) {
-                    val smoothPath = android.graphics.Path()
-                    smoothPath.moveTo(action.points[0].x, action.points[0].y)
-                    if (action.points.size == 2) {
-                        smoothPath.lineTo(action.points[1].x, action.points[1].y)
-                    } else {
-                        for (i in 0 until action.points.size - 1) {
-                            val p0 = if (i == 0) action.points[0] else action.points[i - 1]
-                            val p1 = action.points[i]
-                            val p2 = action.points[i + 1]
-                            
-                            if (i == action.points.size - 2) {
-                                smoothPath.lineTo(p2.x, p2.y)
-                            } else {
-                                val p3 = action.points[i + 2]
-                                val control1X = p1.x + (p2.x - p0.x) * 0.25f
-                                val control1Y = p1.y + (p2.y - p0.y) * 0.25f
-                                val control2X = p2.x - (p3.x - p1.x) * 0.25f
-                                val control2Y = p2.y - (p3.y - p1.y) * 0.25f
-                                smoothPath.cubicTo(control1X, control1Y, control2X, control2Y, p2.x, p2.y)
-                            }
-                        }
+                    val src = android.graphics.Path().apply { buildSmoothPath(action.points) }
+                    android.graphics.Path().also { dst ->
+                        src.transform(android.graphics.Matrix().apply { setScale(scaleX, scaleY) }, dst)
                     }
-                    val scaledSmoothPath = android.graphics.Path()
-                    val smoothMatrix = android.graphics.Matrix()
-                    smoothMatrix.setScale(scaleX, scaleY)
-                    smoothPath.transform(smoothMatrix, scaledSmoothPath)
-                    scaledSmoothPath
                 } else {
                     action.path.asAndroidPath()
                 }
@@ -933,12 +956,7 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
             }
 
             is DrawAction.HollowCircle -> {
-                val paint = android.graphics.Paint().apply {
-                    color = action.color.toArgb()
-                    style = android.graphics.Paint.Style.STROKE
-                    strokeWidth = action.strokeWidth * scaleX
-                    isAntiAlias = true
-                }
+                val paint = strokePaint(action.color, action.strokeWidth, scaleX)
                 canvas.drawCircle(
                     action.center.x * scaleX,
                     action.center.y * scaleY,
@@ -948,39 +966,13 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
             }
 
             is DrawAction.DrawText -> {
-                val textPaint = android.graphics.Paint().apply {
-                    color = action.color.toArgb()
-                    textSize = action.textSize * scaleX
-                    isAntiAlias = true
-                }
-                val bgPaint = android.graphics.Paint().apply {
-                    color = action.bgColor.copy(alpha = 0.5f).toArgb()
-                    style = android.graphics.Paint.Style.FILL
-                }
-
-                val fm = textPaint.fontMetrics
-                val textWidth = textPaint.measureText(action.text)
-                val padding = action.textSize * scaleX * 0.25f
-
-                val sx = action.position.x * scaleX
-                val sy = action.position.y * scaleY
-
-                if (action.bgColor != Color.Transparent) {
-                    canvas.drawRect(
-                        sx - padding,
-                        sy + fm.ascent - padding,
-                        sx + textWidth + padding,
-                        sy + fm.descent + padding,
-                        bgPaint
-                    )
-                }
-                canvas.drawText(action.text, sx, sy, textPaint)
+                canvas.drawTextScaled(action.text, action.position, action.color, action.bgColor, action.textSize, scaleX, scaleY)
             }
         }
     }
 
     // 2) Downscale and encode with a size budget.
-    val maxBytes = 5 * 1024 * 1024 // 5 MiB
+    val maxBytes = 3 * 1024 * 1024 // 3 MiB
     val downscaled = buildScaledBitmapIfNeeded(resultBmp, maxDimension = 2560)
     val encoded = encodeBestUnderLimit(downscaled, maxBytes)
 
