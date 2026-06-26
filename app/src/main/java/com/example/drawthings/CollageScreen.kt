@@ -40,7 +40,14 @@ import java.util.*
 fun CollageScreen(onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var loadedBitmaps by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var isExporting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedUris) {
+        loadedBitmaps = selectedUris.map { uri ->
+            loadBitmap(context, uri)
+        }
+    }
 
     val pickMultipleMedia = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 4),
@@ -87,9 +94,9 @@ fun CollageScreen(onBack: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(selectedUris) { uri ->
+            items(loadedBitmaps) { bmp ->
                 Image(
-                    bitmap = loadBitmap(context, uri).asImageBitmap(),
+                    bitmap = bmp.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier
                         .aspectRatio(1f)
@@ -98,7 +105,7 @@ fun CollageScreen(onBack: () -> Unit) {
                     contentScale = ContentScale.Crop
                 )
             }
-            if (selectedUris.size < 4) {
+            if (loadedBitmaps.size < 4) {
                 item {
                     Box(
                         modifier = Modifier
@@ -124,8 +131,7 @@ fun CollageScreen(onBack: () -> Unit) {
         Button(
             onClick = {
                 isExporting = true
-                val bitmaps = selectedUris.map { loadBitmap(context, it) }
-                val collage = createCollage(bitmaps)
+                val collage = createCollage(loadedBitmaps)
                 saveCollageToGallery(context, collage)
                 isExporting = false
             },
