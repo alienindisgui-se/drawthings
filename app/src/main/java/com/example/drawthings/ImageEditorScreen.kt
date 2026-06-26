@@ -95,7 +95,7 @@ fun ImageEditorScreen() {
     var selectedTool by remember { mutableStateOf(Tool.DRAW) }
 
     // Shared stroke width (pen + circles + line)
-    var strokeWidth by remember { mutableFloatStateOf(10f) }
+    var strokeWidth by remember { mutableFloatStateOf(5f) }
 
     // Tool Configurations
     var drawColor by remember { mutableStateOf(Color.Red) }
