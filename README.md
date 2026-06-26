@@ -1,92 +1,55 @@
-# DrawThings (Image Editor)
+# DrawThings
 
-<img src="assets/app-showcase.png" style="width: 50%; height: auto;">
+[![Version](https://img.shields.io/badge/version-v1.1.0-blue.svg)](https://github.com/your-repo/drawthings)
 
-Jetpack Compose Android app that lets you pick an image and draw lightweight annotations on top (freehand pencil + hollow circles), then export the result to the device gallery.
+Android image annotation app built with **Jetpack Compose**. Pick a photo, draw on it, and export the result directly to your gallery.
 
-> The functionality described here is based on `app/src/main/java/com/example/drawthings/ImageEditorScreen.kt`.
+## About
 
----
+A lightweight image editor for quick annotations. Import any photo, add freehand strokes, circles, or text overlays, adjust borders, and export the finished image — all in a single Compose-first Android app.
 
 ## Features
 
-### Image import
-- Tap **Open** to choose an image using `ActivityResultContracts.PickVisualMedia`.
-- Reads **EXIF orientation** from the selected image and rotates the decoded bitmap when needed.
-- Resets the current drawing actions when a new image is loaded.
+- **Freehand drawing** with smooth Bézier interpolation
+- **Arrow heads** on strokes
+- **Hollow circles** with preset sizes or free drag scaling
+- **Text overlays** with configurable size
+- **Collage export** — 2×2 grid layout for larger outputs
+- **Move & delete window** — tap or drag recent annotations (circles/text) within 30s to reposition or remove them
+- **Color palette** — limited curated set for fast annotation
+- **Auto-compressed export** to gallery, targeting **≤3 MiB** (normal) or **≤10 MiB** (collage)
 
-### Drawing tools (on a Compose Canvas)
-- **Pencil (Tool: `DRAW`)**
-  - Drag to create a smooth freehand path.
-  - Optional **Arrow Head** checkbox: draws an arrow head at the end of each stroke.
-  - Stroke color selectable via a small palette.
+## Quick start
 
-- **Circle (Tool: `CIRCLE`)**
-  - Drag from the initial touch point to set the radius.
-  - Draws a **hollow** circle (stroke only).
-  - Circle color selectable via a small palette.
+```bash
+# Open in Android Studio (Hedgehog+ recommended)
+# - Sync Gradle
+# - Run on device / emulator (minSdk 24, targetSdk 36)
+```
 
-### Overlays & styling
-- **Overlay text** (labeled “Top-Left Overlay Number”): enter a single-line text shown at the top-left.
-- **Border**:
-  - Optional **Enable Border** checkbox.
-  - Border color selectable.
+## Tech stack
 
-### Undo
-- **Undo** removes the last recorded drawing action (path or circle).
+- **Kotlin** + **Jetpack Compose** UI
+- **Material 3** theming
+- **MediaStore** export
+- **Gradle** (version catalog)
 
-### Export to gallery
-- **Export** renders the final annotated bitmap:
-  - Starts with a copy of the original decoded bitmap.
-  - Scales all strokes/overlays from the Compose canvas size to the native bitmap size.
-  - Writes the output as `Edited_<timestamp>.png` into `Pictures/` using `MediaStore`.
-- Shows a toast: **“Saved to Gallery!”**
+## How it works
 
----
-
-## How it works (implementation notes)
-
-- `ImageEditorScreen()` is the main composable.
-- Drawing is represented as a list of actions:
-  - `DrawAction.DrawPath`: stores `Path`, color, stroke width, whether it’s smoothed, optional arrow head, and the sampled touch points.
-  - `DrawAction.HollowCircle`: stores center, radius, color, stroke width.
-- Pointer interaction is handled via `Canvas(...).pointerInput(...)` + `detectDragGestures`.
-  - During drag, a “live” shape (path/circle) is drawn.
-  - On drag end, the final action is appended to `actions`.
-- Export uses `exportImage(...)`:
-  - Computes `scaleX`/`scaleY` from `nativeBitmap` size vs. `canvasSize`.
-  - Applies scaling to paths using `android.graphics.Matrix`.
-  - Draws border, text, and each stored action onto the bitmap.
-
----
-
-## File reference
-
-- **Main UI + export engine**: `app/src/main/java/com/example/drawthings/ImageEditorScreen.kt`
-  - `ImageEditorScreen()` (Compose UI)
-  - `ColorPickerRow()` (color palette UI)
-  - `DrawScope.drawArrow()` (arrowhead rendering)
-  - `exportImage(...)` (native rendering + MediaStore save)
-
----
+The editor surface is a single `Canvas` composable. Interactions are captured as typed actions (`DrawPath`, `HollowCircle`, `DrawText`) and replayed during export onto a scaled `android.graphics.Bitmap`. This keeps the UI resolution-independent and makes batch export (including collage mode) straightforward.
 
 ## Run
 
-This is an Android Studio / Gradle project.
 1. Open the project in Android Studio.
 2. Sync Gradle.
-3. Run the app on an Android device/emulator.
+3. Run on an emulator or physical device.
 
 ## Release
 
 When preparing a new version:
-1. Update `versionCode` and `versionName` in `app/build.gradle.kts` under the `defaultConfig` block.
+1. Update `versionCode` and `versionName` in `app/build.gradle.kts` under `defaultConfig`.
 2. Commit the change, then create a tag matching the version:
 
 ```bash
 git flow release start v1.2.3
 ```
-
----
-
-
