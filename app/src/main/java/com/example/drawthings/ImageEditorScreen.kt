@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
@@ -123,7 +124,10 @@ fun findRecentActionAt(
 // --- MAIN UI COMPOSABLE ---
 
 @Composable
-fun ImageEditorScreen() {
+fun ImageEditorScreen(
+    initialImageUri: Uri? = null,
+    onBack: () -> Unit = {}
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -156,7 +160,6 @@ fun ImageEditorScreen() {
     var overlayText by remember { mutableStateOf("") }
     var borderEnabled by remember { mutableStateOf(false) }
     var borderColor by remember { mutableStateOf(Color.Red) }
-    var collageEnabled by remember { mutableStateOf(false) }
 
     // Live Gestures State
     var currentPoints by remember { mutableStateOf(listOf<Offset>()) } // freehand
@@ -191,6 +194,46 @@ fun ImageEditorScreen() {
     // Tab Navigation State
     val tabs = listOf("Draw", "Circle", "Text", "Overlay")
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(initialImageUri) {
+        initialImageUri?.let { uri ->
+            coroutineScope.launch(Dispatchers.IO) {
+                val rotation = try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val exif = android.media.ExifInterface(stream)
+                        when (exif.getAttributeInt(
+                            android.media.ExifInterface.TAG_ORIENTATION,
+                            android.media.ExifInterface.ORIENTATION_NORMAL
+                        )) {
+                            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                            else -> 0f
+                        }
+                    } ?: 0f
+                } catch (_: Exception) {
+                    0f
+                }
+
+                val bmp = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+
+                if (bmp != null) {
+                    val finalBmp = if (rotation != 0f) {
+                        val matrix = Matrix().apply { postRotate(rotation) }
+                        android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                    } else bmp
+
+                    withContext(Dispatchers.Main) {
+                        nativeBitmap = finalBmp
+                        imageBitmap = finalBmp.asImageBitmap()
+                        actions = emptyList()
+                    }
+                }
+            }
+        }
+    }
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -242,14 +285,20 @@ fun ImageEditorScreen() {
         color = MaterialTheme.colorScheme.background
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // --- TOP AREA: CANVAS (65% Height) ---
-            Box(
-                modifier = Modifier
-                    .weight(0.65f)
-                    .fillMaxWidth()
-                    .background(Color.DarkGray),
-                contentAlignment = Alignment.Center
-            ) {
+                // --- TOP AREA: CANVAS (65% Height) ---
+                Box(
+                    modifier = Modifier
+                        .weight(0.65f)
+                        .fillMaxWidth()
+                        .background(Color.DarkGray),
+                    contentAlignment = Alignment.Center
+                ) {
+                    TextButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                    ) { Text("← Back", color = Color.White) }
                 if (imageBitmap != null) {
                     val ratio = imageBitmap!!.width.toFloat() / imageBitmap!!.height.toFloat()
                     Box(
@@ -597,8 +646,7 @@ fun ImageEditorScreen() {
                                         canvasSize,
                                         borderEnabled,
                                         borderColor,
-                                        overlayText,
-                                        collageEnabled
+                                        overlayText
                                     )
                                 }
                             },
@@ -733,13 +781,6 @@ fun ImageEditorScreen() {
                              }
                              if (borderEnabled) {
                                  ColorPickerRow(selectedColor = borderColor) { borderColor = it }
-                             }
-
-                             HorizontalDivider(Modifier.padding(vertical = 12.dp))
-
-                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                 Checkbox(checked = collageEnabled, onCheckedChange = { collageEnabled = it })
-                                 Text("Enable Collage")
                              }
                         }
                     }
@@ -973,8 +1014,7 @@ fun exportImage(
     canvasSize: IntSize,
     borderEnabled: Boolean,
     borderColor: Color,
-    overlayText: String,
-    collageEnabled: Boolean
+    overlayText: String
 ) {
     fun android.graphics.Bitmap.copyToConfig(config: android.graphics.Bitmap.Config): android.graphics.Bitmap {
         return if (this.config == config) this else this.copy(config, true)
@@ -1126,23 +1166,9 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
         }
     }
 
-    val finalBmp = if (collageEnabled) {
-        val collageBmp = android.graphics.Bitmap.createBitmap(
-            resultBmp.width * 2,
-            resultBmp.height * 2,
-            android.graphics.Bitmap.Config.ARGB_8888
-        )
-        val collageCanvas = android.graphics.Canvas(collageBmp)
-        collageCanvas.drawBitmap(resultBmp, 0f, 0f, null)
-        collageCanvas.drawBitmap(resultBmp, resultBmp.width.toFloat(), 0f, null)
-        collageCanvas.drawBitmap(resultBmp, 0f, resultBmp.height.toFloat(), null)
-        collageCanvas.drawBitmap(resultBmp, resultBmp.width.toFloat(), resultBmp.height.toFloat(), null)
-        collageBmp
-    } else resultBmp
-
     // 2) Downscale and encode with a size budget.
-    val maxBytes = if (collageEnabled) 10 * 1024 * 1024 else 3 * 1024 * 1024 // 10 MiB for collage, 3 MiB normal
-    val downscaled = buildScaledBitmapIfNeeded(finalBmp, maxDimension = if (collageEnabled) 3840 else 2560)
+    val maxBytes = 3 * 1024 * 1024 // 3 MiB
+    val downscaled = buildScaledBitmapIfNeeded(resultBmp, maxDimension = 2560)
     val encoded = encodeBestUnderLimit(downscaled, maxBytes)
 
     // 3) Write to MediaStore
