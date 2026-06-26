@@ -50,7 +50,7 @@ fun CollageScreen(onBack: () -> Unit) {
     }
 
     val pickMultipleMedia = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 4),
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10),
         onResult = { uris ->
             selectedUris = uris
         }
@@ -78,18 +78,18 @@ fun CollageScreen(onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (selectedUris.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Select up to 4 images", color = Color.Gray)
+            if (selectedUris.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Select up to 10 images", color = Color.Gray)
+                }
+                return@Column
             }
-            return@Column
-        }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Fixed(5),
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -105,7 +105,7 @@ fun CollageScreen(onBack: () -> Unit) {
                     contentScale = ContentScale.Crop
                 )
             }
-            if (loadedBitmaps.size < 4) {
+            if (loadedBitmaps.size < 10) {
                 item {
                     Box(
                         modifier = Modifier
@@ -155,9 +155,9 @@ private suspend fun loadBitmap(context: Context, uri: Uri): Bitmap {
 }
 
 private fun createCollage(bitmaps: List<Bitmap>): Bitmap {
-    val count = bitmaps.size.coerceAtMost(4)
-    val cols = 2
-    val rows = 2
+    val count = bitmaps.size.coerceAtMost(10)
+    val cols = 5
+    val rows = (count + cols - 1) / cols
     val cellW = bitmaps.firstOrNull()?.width ?: 1080
     val cellH = bitmaps.firstOrNull()?.height ?: 1080
 
@@ -226,8 +226,31 @@ private fun saveCollageToGallery(context: Context, bitmap: Bitmap) {
     val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
     uri?.let { outUri ->
         context.contentResolver.openOutputStream(outUri)?.use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
-            out.flush()
+            val maxBytes = 10 * 1024 * 1024
+            var quality = 90
+            var currentBitmap = bitmap
+            var encoded: ByteArray
+
+            repeat(12) { attempt ->
+                val baos = java.io.ByteArrayOutputStream()
+                val ok = currentBitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+                if (!ok) return@repeat
+                encoded = baos.toByteArray()
+
+                if (encoded.size <= maxBytes || quality <= 5) {
+                    out.write(encoded)
+                    out.flush()
+                    return@repeat
+                }
+
+                quality -= 8
+                if (attempt == 3) {
+                    val scale = (maxBytes.toFloat() / encoded.size.toFloat()).coerceIn(0.1f, 1f)
+                    val newW = (currentBitmap.width * scale).toInt().coerceAtLeast(1)
+                    val newH = (currentBitmap.height * scale).toInt().coerceAtLeast(1)
+                    currentBitmap = Bitmap.createScaledBitmap(currentBitmap, newW, newH, true)
+                }
+            }
         }
         Toast.makeText(context, "Collage saved!", Toast.LENGTH_SHORT).show()
     }
