@@ -106,7 +106,8 @@ fun ImageEditorScreen(
     var drawArrow by remember { mutableStateOf(true) }
     var drawLineMode by remember { mutableStateOf(false) }
     var circleColor by remember { mutableStateOf(Color.Red) }
-    var circleRadius by remember { mutableFloatStateOf(50f) }
+    var circlePresetIndex by remember { mutableIntStateOf(4) }
+    val circlePresets = listOf(10f, 25f, 40f, 60f, 80f, 100f, 130f, 170f, 220f, 300f)
 
     // Text Tool Configurations
     var toolTextString by remember { mutableStateOf("Sample Text") }
@@ -268,7 +269,7 @@ fun ImageEditorScreen(
                                                 }
                                                 Tool.CIRCLE -> {
                                                     currentCircleCenter = offset
-                                                    currentCircleRadius = circleRadius
+                                                    currentCircleRadius = circlePresets[circlePresetIndex]
                                                 }
                                                 Tool.TEXT -> currentTextPosition = offset
                                             }
@@ -571,11 +572,14 @@ fun ImageEditorScreen(
                         }
 
                          1 -> { // CIRCLE
-                            Text("Circle Radius: ${circleRadius.toInt()}", style = MaterialTheme.typography.labelMedium)
+                            Text("Circle Size Preset: ${circlePresets[circlePresetIndex].toInt()}", style = MaterialTheme.typography.labelMedium)
                             Slider(
-                                value = circleRadius,
-                                onValueChange = { circleRadius = it },
-                                valueRange = 10f..300f,
+                                value = circlePresetIndex.toFloat(),
+                                onValueChange = { 
+                                    circlePresetIndex = it.roundToInt()
+                                },
+                                valueRange = 0f..9f,
+                                steps = 8,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(Modifier.height(8.dp))
