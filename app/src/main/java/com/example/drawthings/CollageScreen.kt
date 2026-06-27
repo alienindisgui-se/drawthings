@@ -89,7 +89,7 @@ fun CollageScreen(onBack: () -> Unit) {
             }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(5),
+            columns = GridCells.Fixed(2),
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -156,7 +156,7 @@ private suspend fun loadBitmap(context: Context, uri: Uri): Bitmap {
 
 private fun createCollage(bitmaps: List<Bitmap>): Bitmap {
     val count = bitmaps.size.coerceAtMost(10)
-    val cols = 5
+    val cols = minOf(count, 2)
     val rows = (count + cols - 1) / cols
     val cellW = bitmaps.firstOrNull()?.width ?: 1080
     val cellH = bitmaps.firstOrNull()?.height ?: 1080
