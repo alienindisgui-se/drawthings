@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 // --- DATA MODELS ---
@@ -285,9 +286,7 @@ fun ImageEditorScreen(
                                                     }
                                                 }
                                                 Tool.CIRCLE -> {
-                                                    currentCircleCenter?.let {
-                                                        currentCircleRadius = (change.position - it).getDistance()
-                                                    }
+                                                    // circle uses preset size, no drag scaling
                                                 }
                                                 Tool.TEXT -> currentTextPosition = change.position
                                             }
@@ -581,12 +580,6 @@ fun ImageEditorScreen(
                                 valueRange = 0f..9f,
                                 steps = 8,
                                 modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Tip: Drag outward from center to scale",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
                             )
                             Spacer(Modifier.height(8.dp))
                             Text("Circle Color", style = MaterialTheme.typography.labelMedium)
