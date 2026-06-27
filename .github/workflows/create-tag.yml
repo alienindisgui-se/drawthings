@@ -1,0 +1,90 @@
+name: Create Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump (auto-detected by default)'
+        required: true
+        type: choice
+        options:
+          - auto
+          - major
+          - minor
+          - patch
+        default: 'auto'
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect version bump
+        if: github.event.inputs.bump == 'auto'
+        id: detect
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          latest=$(git describe --tags 'v*' --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
+          commits=$(git log "$latest"..HEAD --pretty=format:"%s%n%b---END---" || true)
+
+          if echo "$commits" | grep -qiE 'BREAKING[- ]CHANGE' || \
+             echo "$commits" | grep -qiE '^[a-zA-Z]+(\([^)]*\))?!:'; then
+            echo "bump=auto-major" >> "$GITHUB_OUTPUT"
+          elif echo "$commits" | grep -qiE '^feat(\([^)]*\))?:'; then
+            echo "bump=auto-minor" >> "$GITHUB_OUTPUT"
+          elif echo "$commits" | grep -qiE '^fix(\([^)]*\))?:'; then
+            echo "bump=auto-patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "bump=auto-patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Calculate next tag
+        id: bump
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          latest=${{ steps.detect.outputs.latest || 'v0.0.0' }}
+          version=${latest#v}
+
+          raw_bump="${{ github.event.inputs.bump }}"
+          case "$raw_bump" in
+            auto*)
+              bump="$raw_bump"
+              ;;
+            *)
+              bump="auto-${raw_bump}"
+              ;;
+          esac
+
+          case "$bump" in
+            *-major)
+              version=$(echo "$version" | awk -F. '{print ($1+1)".0.0"}')
+              ;;
+            *-minor)
+              version=$(echo "$version" | awk -F. '{print $1"."($2+1)".0.0"}')
+              ;;
+            *)
+              version=$(echo "$version" | awk -F. '{print $1"."$2"."($3+1)}')
+              ;;
+          esac
+
+          new_tag="v$version"
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
+
+          git tag "$new_tag"
+          git push origin "$new_tag"
+
+      - name: Confirm
+        run: echo "Created and pushed ${{ steps.bump.outputs.new_tag }}"
