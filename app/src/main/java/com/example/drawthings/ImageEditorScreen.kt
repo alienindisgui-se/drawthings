@@ -20,7 +20,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -257,16 +258,137 @@ fun ImageEditorScreen(
                                 .fillMaxSize()
                                 .onSizeChanged { canvasSize = it }
                                 .pointerInput(selectedTool) {
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        val downPos = down.position
+                                        
+                                        when (selectedTool) {
+                                            Tool.DRAW -> {
+                                                if (drawLineMode) {
+                                                    currentLineStart = downPos
+                                                    currentLineEnd = downPos
+                                                } else {
+                                                    currentPoints = listOf(downPos)
+                                                }
+                                            }
+                                            Tool.CIRCLE -> {
+                                                currentCircleCenter = downPos
+                                                currentCircleRadius = circlePresets[circlePresetIndex]
+                                            }
+                                            Tool.TEXT -> currentTextPosition = downPos
+                                        }
+                                        
+                                        var dragOccurred = false
+                                        do {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.pressed } ?: break
+                                            if (!dragOccurred && (change.position - downPos).getDistance() > 4f) {
+                                                dragOccurred = true
+                                            }
+                                            if (dragOccurred) {
+                                                change.consume()
+                                                when (selectedTool) {
+                                                    Tool.DRAW -> {
+                                                        if (drawLineMode) {
+                                                            currentLineEnd = change.position
+                                                        } else {
+                                                            currentPoints = currentPoints + change.position
+                                                        }
+                                                    }
+                                                    Tool.TEXT -> currentTextPosition = change.position
+                                                }
+                                            }
+                                        } while (event.changes.any { it.pressed })
+                                        
+                                        if (!dragOccurred) {
+                                            when (selectedTool) {
+                                                Tool.CIRCLE -> {
+                                                    if (currentCircleCenter != null) {
+                                                        actions = actions + DrawAction.HollowCircle(
+                                                            center = currentCircleCenter!!,
+                                                            radius = circlePresets[circlePresetIndex],
+                                                            color = circleColor,
+                                                            strokeWidth = strokeWidth
+                                                        )
+                                                        currentCircleCenter = null
+                                                    }
+                                                }
+                                                Tool.TEXT -> {
+                                                    if (currentTextPosition != null && toolTextString.isNotEmpty()) {
+                                                        actions = actions + DrawAction.DrawText(
+                                                            text = toolTextString,
+                                                            position = currentTextPosition!!,
+                                                            color = toolTextColor,
+                                                            bgColor = toolTextBgColor,
+                                                            textSize = toolTextSize
+                                                        )
+                                                        currentTextPosition = null
+                                                    }
+                                                }
+                                                else -> {}
+                                            }
+                                        } else {
                                             when (selectedTool) {
                                                 Tool.DRAW -> {
                                                     if (drawLineMode) {
-                                                        currentLineStart = offset
-                                                        currentLineEnd = offset
+                                                        val start = currentLineStart
+                                                        val end = currentLineEnd
+                                                        if (start != null && end != null && start != end) {
+                                                            actions = actions + DrawAction.DrawPath(
+                                                                path = Path().apply {
+                                                                    moveTo(start.x, start.y)
+                                                                    lineTo(end.x, end.y)
+                                                                },
+                                                                color = drawColor,
+                                                                strokeWidth = strokeWidth,
+                                                                isSmooth = false,
+                                                                hasArrow = drawArrow,
+                                                                points = listOf(start, end)
+                                                            )
+                                                        }
+                                                        currentLineStart = null
+                                                        currentLineEnd = null
                                                     } else {
-                                                        currentPoints = listOf(offset)
+                                                        if (currentPoints.size > 1) {
+                                                            actions = actions + DrawAction.DrawPath(
+                                                                path = Path().also { smoothPath(currentPoints.toList(), it) },
+                                                                color = drawColor,
+                                                                strokeWidth = strokeWidth,
+                                                                isSmooth = true,
+                                                                hasArrow = drawArrow,
+                                                                points = currentPoints.toList()
+                                                            )
+                                                        }
+                                                        currentPoints = emptyList()
                                                     }
+                                                }
+                                                Tool.CIRCLE -> {
+                                                    if (currentCircleCenter != null) {
+                                                        actions = actions + DrawAction.HollowCircle(
+                                                            center = currentCircleCenter!!,
+                                                            radius = circlePresets[circlePresetIndex],
+                                                            color = circleColor,
+                                                            strokeWidth = strokeWidth
+                                                        )
+                                                        currentCircleCenter = null
+                                                    }
+                                                }
+                                                Tool.TEXT -> {
+                                                    if (currentTextPosition != null && toolTextString.isNotEmpty()) {
+                                                        actions = actions + DrawAction.DrawText(
+                                                            text = toolTextString,
+                                                            position = currentTextPosition!!,
+                                                            color = toolTextColor,
+                                                            bgColor = toolTextBgColor,
+                                                            textSize = toolTextSize
+                                                        )
+                                                        currentTextPosition = null
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                                 }
                                                 Tool.CIRCLE -> {
                                                     currentCircleCenter = offset
