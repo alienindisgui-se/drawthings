@@ -233,7 +233,8 @@ fun ImageEditorScreen(
                         onClick = onBack,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(8.dp)
+                            .padding(top = 16.dp, start = 16.dp)
+                            .wrapContentSize()
                     ) { Text("← Back", color = Color.White) }
                 if (imageBitmap != null) {
                     val ratio = imageBitmap!!.width.toFloat() / imageBitmap!!.height.toFloat()
