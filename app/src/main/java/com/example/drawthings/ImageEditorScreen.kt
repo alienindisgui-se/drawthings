@@ -296,6 +296,7 @@ fun ImageEditorScreen(
                                                         }
                                                     }
                                                     Tool.TEXT -> currentTextPosition = change.position
+                                                    else -> {}
                                                 }
                                             }
                                         } while (event.changes.any { it.pressed })
@@ -388,94 +389,6 @@ fun ImageEditorScreen(
                                             }
                                         }
                                     }
-                                }
-                                                }
-                                                Tool.CIRCLE -> {
-                                                    currentCircleCenter = offset
-                                                    currentCircleRadius = circlePresets[circlePresetIndex]
-                                                }
-                                                Tool.TEXT -> currentTextPosition = offset
-                                            }
-                                        },
-                                        onDrag = { change, _ ->
-                                            change.consume()
-                                            when (selectedTool) {
-                                                Tool.DRAW -> {
-                                                    if (drawLineMode) {
-                                                        currentLineEnd = change.position
-                                                    } else {
-                                                        currentPoints = currentPoints + change.position
-                                                    }
-                                                }
-                                                Tool.CIRCLE -> {
-                                                    // circle uses preset size, no drag scaling
-                                                }
-                                                Tool.TEXT -> currentTextPosition = change.position
-                                            }
-                                        },
-                                        onDragEnd = {
-                                            when (selectedTool) {
-                                                Tool.DRAW -> {
-                                                    if (drawLineMode) {
-                                                        val start = currentLineStart
-                                                        val end = currentLineEnd
-                                                        if (start != null && end != null && start != end) {
-                                                            actions = actions + DrawAction.DrawPath(
-                                                                path = Path().apply {
-                                                                    moveTo(start.x, start.y)
-                                                                    lineTo(end.x, end.y)
-                                                                },
-                                                                color = drawColor,
-                                                                strokeWidth = strokeWidth,
-                                                                isSmooth = false,
-                                                                hasArrow = drawArrow,
-                                                                points = listOf(start, end)
-                                                            )
-                                                        }
-                                                        currentLineStart = null
-                                                        currentLineEnd = null
-                                                    } else {
-                                                        if (currentPoints.size > 1) {
-                                                            actions = actions + DrawAction.DrawPath(
-                                                                path = Path().also { smoothPath(currentPoints.toList(), it) },
-                                                                color = drawColor,
-                                                                strokeWidth = strokeWidth,
-                                                                isSmooth = true,
-                                                                hasArrow = drawArrow,
-                                                                points = currentPoints.toList()
-                                                            )
-                                                        }
-                                                        currentPoints = emptyList()
-                                                    }
-                                                }
-
-                                                Tool.CIRCLE -> {
-                                                    if (currentCircleCenter != null) {
-                                                        actions = actions + DrawAction.HollowCircle(
-                                                            center = currentCircleCenter!!,
-                                                            radius = currentCircleRadius,
-                                                            color = circleColor,
-                                                            strokeWidth = strokeWidth
-                                                        )
-                                                    }
-                                                    currentCircleCenter = null
-                                                }
-
-                                                Tool.TEXT -> {
-                                                    if (currentTextPosition != null && toolTextString.isNotEmpty()) {
-                                                        actions = actions + DrawAction.DrawText(
-                                                            text = toolTextString,
-                                                            position = currentTextPosition!!,
-                                                            color = toolTextColor,
-                                                            bgColor = toolTextBgColor,
-                                                            textSize = toolTextSize
-                                                        )
-                                                    }
-                                                    currentTextPosition = null
-                                                }
-                                            }
-                                        }
-                                    )
                                 }
                         ) {
                             // 1. Draw Stored Actions
