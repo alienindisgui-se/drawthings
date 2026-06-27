@@ -1000,7 +1000,10 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
                         src.transform(android.graphics.Matrix().apply { setScale(scaleX, scaleY) }, dst)
                     }
                 } else {
-                    action.path.asAndroidPath()
+                    val src = action.path.asAndroidPath()
+                    android.graphics.Path().also { dst ->
+                        src.transform(android.graphics.Matrix().apply { setScale(scaleX, scaleY) }, dst)
+                    }
                 }
                 canvas.drawPath(androidPath, paint)
 
