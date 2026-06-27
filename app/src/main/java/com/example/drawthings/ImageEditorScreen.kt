@@ -103,7 +103,7 @@ fun ImageEditorScreen(
 
     // Tool Configurations
     var drawColor by remember { mutableStateOf(Color.Red) }
-    var drawArrow by remember { mutableStateOf(false) }
+    var drawArrow by remember { mutableStateOf(true) }
     var drawLineMode by remember { mutableStateOf(false) }
     var circleColor by remember { mutableStateOf(Color.Red) }
     var circleRadius by remember { mutableFloatStateOf(50f) }
