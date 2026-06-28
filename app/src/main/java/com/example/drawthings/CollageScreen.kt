@@ -149,7 +149,7 @@ fun CollageScreen(onBack: () -> Unit) {
 
 private suspend fun loadBitmap(context: Context, uri: Uri): Bitmap {
     return withContext(Dispatchers.IO) {
-        loadBitmapWithRotation(context, uri) ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        loadBitmapWithRotation(context, uri)
     }
 }
 

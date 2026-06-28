@@ -16,7 +16,7 @@ import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
-suspend fun loadBitmapWithRotation(context: Context, uri: Uri): Bitmap? {
+suspend fun loadBitmapWithRotation(context: Context, uri: Uri): Bitmap {
     return withContext(Dispatchers.IO) {
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->
@@ -41,9 +41,9 @@ suspend fun loadBitmapWithRotation(context: Context, uri: Uri): Bitmap? {
                 Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true).also {
                     bitmap.recycle()
                 }
-            }
+            } ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         } catch (e: Exception) {
-            null
+            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         }
     }
 }
