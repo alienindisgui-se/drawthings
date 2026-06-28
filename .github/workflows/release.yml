@@ -3,16 +3,32 @@ name: Build & Publish Release APK
 on:
   push:
     tags:
-      - 'v*' # Triggers workflow when you push a tag like v1.0.0, v1.0.1, etc.
+      - 'v*'
+  workflow_run:
+    workflows: ["Create Release Tag"]
+    types:
+      - completed
 
 jobs:
   build:
     name: Build Release APK
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
 
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout release tag
+        if: ${{ github.event_name == 'workflow_run' }}
+        run: |
+          latest_tag=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+          if [ -n "$latest_tag" ]; then
+            git checkout "$latest_tag"
+          fi
+        shell: bash
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -38,9 +54,21 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Determine release tag
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            tag=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        if: steps.release.outputs.tag != ''
         with:
+          tag_name: ${{ steps.release.outputs.tag }}
           files: app/build/outputs/apk/release/app-release.apk
           draft: false
           prerelease: false
