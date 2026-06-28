@@ -126,12 +126,10 @@ fun ImageEditorScreen(
         initialImageUri?.let { uri ->
             coroutineScope.launch {
                 val bmp = loadBitmapWithRotation(context, uri)
-                if (bmp != null) {
-                    withContext(Dispatchers.Main) {
-                        nativeBitmap = bmp
-                        imageBitmap = bmp.asImageBitmap()
-                        actions = emptyList()
-                    }
+                withContext(Dispatchers.Main) {
+                    nativeBitmap = bmp
+                    imageBitmap = bmp.asImageBitmap()
+                    actions = emptyList()
                 }
             }
         }
@@ -143,12 +141,10 @@ fun ImageEditorScreen(
             uri?.let {
                 coroutineScope.launch {
                     val bmp = loadBitmapWithRotation(context, it)
-                    if (bmp != null) {
-                        withContext(Dispatchers.Main) {
-                            nativeBitmap = bmp
-                            imageBitmap = bmp.asImageBitmap()
-                            actions = emptyList()
-                        }
+                    withContext(Dispatchers.Main) {
+                        nativeBitmap = bmp
+                        imageBitmap = bmp.asImageBitmap()
+                        actions = emptyList()
                     }
                 }
             }
