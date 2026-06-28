@@ -1,17 +1,10 @@
 package com.example.drawthings
 
-import android.content.ContentValues
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
-import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,13 +36,15 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import java.io.ByteArrayOutputStream
+import java.text.SimpleDateFormat
+import java.util.*
 
 // --- DATA MODELS ---
 
@@ -91,82 +86,48 @@ fun ImageEditorScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // Core Image State
     var nativeBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
-// Action State
     var actions by remember { mutableStateOf(listOf<DrawAction>()) }
-    var selectedTool by remember { mutableStateOf(Tool.DRAW) }
+    var selectedTool by remember { mutableIntStateOf(Tool.DRAW.ordinal) }
 
-    // Shared stroke width (pen + circles + line)
-    var strokeWidth by remember { mutableFloatStateOf(5f) }
+    var strokeWidth by remember { mutableFloatStateOf(EditorConstants.DEFAULT_STROKE_WIDTH) }
 
-    // Tool Configurations
     var drawColor by remember { mutableStateOf(Color.Red) }
     var drawArrow by remember { mutableStateOf(true) }
     var drawLineMode by remember { mutableStateOf(false) }
     var circleColor by remember { mutableStateOf(Color.Red) }
     var circlePresetIndex by remember { mutableIntStateOf(4) }
-    val circlePresets = listOf(10f, 25f, 40f, 60f, 80f, 100f, 130f, 170f, 220f, 300f)
 
-    // Text Tool Configurations
     var toolTextString by remember { mutableStateOf("Sample Text") }
     var toolTextColor by remember { mutableStateOf(Color.White) }
     var toolTextBgColor by remember { mutableStateOf(Color.Black) }
-    var toolTextSize by remember { mutableFloatStateOf(80f) }
+    var toolTextSize by remember { mutableFloatStateOf(EditorConstants.DEFAULT_TEXT_SIZE) }
 
-    // Overlay & Global Configurations
     var overlayText by remember { mutableStateOf("") }
     var borderEnabled by remember { mutableStateOf(false) }
     var borderColor by remember { mutableStateOf(Color.Red) }
 
-    // Live Gestures State
-    var currentPoints by remember { mutableStateOf(listOf<Offset>()) } // freehand
+    var currentPoints by remember { mutableStateOf(listOf<Offset>()) }
     var currentLineStart by remember { mutableStateOf<Offset?>(null) }
     var currentLineEnd by remember { mutableStateOf<Offset?>(null) }
     var currentCircleCenter by remember { mutableStateOf<Offset?>(null) }
     var currentCircleRadius by remember { mutableFloatStateOf(0f) }
     var currentTextPosition by remember { mutableStateOf<Offset?>(null) }
 
-    // Tab Navigation State
     val tabs = listOf("Draw", "Circle", "Text", "Overlay")
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(initialImageUri) {
         initialImageUri?.let { uri ->
-            coroutineScope.launch(Dispatchers.IO) {
-                val rotation = try {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        val exif = android.media.ExifInterface(stream)
-                        when (exif.getAttributeInt(
-                            android.media.ExifInterface.TAG_ORIENTATION,
-                            android.media.ExifInterface.ORIENTATION_NORMAL
-                        )) {
-                            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                            else -> 0f
-                        }
-                    } ?: 0f
-                } catch (_: Exception) {
-                    0f
-                }
-
-                val bmp = context.contentResolver.openInputStream(uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
-                }
-
+            coroutineScope.launch {
+                val bmp = loadBitmapWithRotation(context, uri)
                 if (bmp != null) {
-                    val finalBmp = if (rotation != 0f) {
-                        val matrix = Matrix().apply { postRotate(rotation) }
-                        android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
-                    } else bmp
-
                     withContext(Dispatchers.Main) {
-                        nativeBitmap = finalBmp
-                        imageBitmap = finalBmp.asImageBitmap()
+                        nativeBitmap = bmp
+                        imageBitmap = bmp.asImageBitmap()
                         actions = emptyList()
                     }
                 }
@@ -178,37 +139,12 @@ fun ImageEditorScreen(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri ->
             uri?.let {
-                coroutineScope.launch(Dispatchers.IO) {
-                    val rotation = try {
-                        context.contentResolver.openInputStream(it)?.use { stream ->
-                            val exif = android.media.ExifInterface(stream)
-                            when (exif.getAttributeInt(
-                                android.media.ExifInterface.TAG_ORIENTATION,
-                                android.media.ExifInterface.ORIENTATION_NORMAL
-                            )) {
-                                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                                else -> 0f
-                            }
-                        } ?: 0f
-                    } catch (_: Exception) {
-                        0f
-                    }
-
-                    val bmp = context.contentResolver.openInputStream(it)?.use { stream ->
-                        BitmapFactory.decodeStream(stream)
-                    }
-
+                coroutineScope.launch {
+                    val bmp = loadBitmapWithRotation(context, it)
                     if (bmp != null) {
-                        val finalBmp = if (rotation != 0f) {
-                            val matrix = Matrix().apply { postRotate(rotation) }
-                            android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
-                        } else bmp
-
                         withContext(Dispatchers.Main) {
-                            nativeBitmap = finalBmp
-                            imageBitmap = finalBmp.asImageBitmap()
+                            nativeBitmap = bmp
+                            imageBitmap = bmp.asImageBitmap()
                             actions = emptyList()
                         }
                     }
@@ -224,21 +160,21 @@ fun ImageEditorScreen(
         color = MaterialTheme.colorScheme.background
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-                // --- TOP AREA: CANVAS (65% Height) ---
-                Box(
+            Box(
+                modifier = Modifier
+                    .weight(0.65f)
+                    .fillMaxWidth()
+                    .background(Color.DarkGray),
+                contentAlignment = Alignment.Center
+            ) {
+                TextButton(
+                    onClick = onBack,
                     modifier = Modifier
-                        .weight(0.65f)
-                        .fillMaxWidth()
-                        .background(Color.DarkGray),
-                    contentAlignment = Alignment.Center
-                ) {
-                    TextButton(
-                        onClick = onBack,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(top = 16.dp, start = 16.dp)
-                            .wrapContentSize()
-                    ) { Text("← Back", color = Color.White) }
+                        .align(Alignment.TopStart)
+                        .padding(top = 16.dp, start = 16.dp)
+                        .wrapContentSize()
+                ) { Text("← Back", color = Color.White) }
+
                 if (imageBitmap != null) {
                     val ratio = imageBitmap!!.width.toFloat() / imageBitmap!!.height.toFloat()
                     Box(
@@ -261,8 +197,9 @@ fun ImageEditorScreen(
                                     awaitEachGesture {
                                         val down = awaitFirstDown(requireUnconsumed = false)
                                         val downPos = down.position
-                                        
-                                        when (selectedTool) {
+                                        val currentTool = Tool.entries[selectedTool]
+
+                                        when (currentTool) {
                                             Tool.DRAW -> {
                                                 if (drawLineMode) {
                                                     currentLineStart = downPos
@@ -273,11 +210,11 @@ fun ImageEditorScreen(
                                             }
                                             Tool.CIRCLE -> {
                                                 currentCircleCenter = downPos
-                                                currentCircleRadius = circlePresets[circlePresetIndex]
+                                                currentCircleRadius = EditorConstants.CIRCLE_PRESETS[circlePresetIndex]
                                             }
                                             Tool.TEXT -> currentTextPosition = downPos
                                         }
-                                        
+
                                         var dragOccurred = false
                                         do {
                                             val event = awaitPointerEvent()
@@ -287,7 +224,7 @@ fun ImageEditorScreen(
                                             }
                                             if (dragOccurred) {
                                                 change.consume()
-                                                when (selectedTool) {
+                                                when (currentTool) {
                                                     Tool.DRAW -> {
                                                         if (drawLineMode) {
                                                             currentLineEnd = change.position
@@ -300,14 +237,14 @@ fun ImageEditorScreen(
                                                 }
                                             }
                                         } while (event.changes.any { it.pressed })
-                                        
+
                                         if (!dragOccurred) {
-                                            when (selectedTool) {
+                                            when (currentTool) {
                                                 Tool.CIRCLE -> {
-                                                    if (currentCircleCenter != null) {
+                                                    currentCircleCenter?.let { center ->
                                                         actions = actions + DrawAction.HollowCircle(
-                                                            center = currentCircleCenter!!,
-                                                            radius = circlePresets[circlePresetIndex],
+                                                            center = center,
+                                                            radius = EditorConstants.CIRCLE_PRESETS[circlePresetIndex],
                                                             color = circleColor,
                                                             strokeWidth = strokeWidth
                                                         )
@@ -329,7 +266,7 @@ fun ImageEditorScreen(
                                                 else -> {}
                                             }
                                         } else {
-                                            when (selectedTool) {
+                                            when (currentTool) {
                                                 Tool.DRAW -> {
                                                     if (drawLineMode) {
                                                         val start = currentLineStart
@@ -364,10 +301,10 @@ fun ImageEditorScreen(
                                                     }
                                                 }
                                                 Tool.CIRCLE -> {
-                                                    if (currentCircleCenter != null) {
+                                                    currentCircleCenter?.let { center ->
                                                         actions = actions + DrawAction.HollowCircle(
-                                                            center = currentCircleCenter!!,
-                                                            radius = circlePresets[circlePresetIndex],
+                                                            center = center,
+                                                            radius = EditorConstants.CIRCLE_PRESETS[circlePresetIndex],
                                                             color = circleColor,
                                                             strokeWidth = strokeWidth
                                                         )
@@ -391,7 +328,6 @@ fun ImageEditorScreen(
                                     }
                                 }
                         ) {
-                            // 1. Draw Stored Actions
                             actions.forEach { action ->
                                 when (action) {
                                     is DrawAction.DrawPath -> {
@@ -435,8 +371,7 @@ fun ImageEditorScreen(
                                 }
                             }
 
-                            // 2. Draw Live Action (while dragging)
-                            when (selectedTool) {
+                            when (Tool.entries[selectedTool]) {
                                 Tool.DRAW -> {
                                     if (drawLineMode) {
                                         val start = currentLineStart
@@ -492,35 +427,34 @@ fun ImageEditorScreen(
                                 }
                             }
 
-                            // 3. Draw Global Overlay & Border
                             if (borderEnabled) {
-                                drawRect(color = borderColor, style = Stroke(width = 20f))
+                                drawRect(color = borderColor, style = Stroke(width = EditorConstants.BORDER_STROKE_WIDTH))
                             }
                             if (overlayText.isNotEmpty()) {
                                 drawTextWithBackground(
                                     text = overlayText,
-                                    position = Offset(30f, 100f),
+                                    position = Offset(EditorConstants.OVERLAY_POSITION_X, EditorConstants.OVERLAY_POSITION_Y),
                                     textColor = Color.White,
                                     bgColor = Color.Black,
-                                    textSize = 80f
+                                    textSize = EditorConstants.DEFAULT_TEXT_SIZE
                                 )
                             }
                         }
                     }
                 } else {
-                    Text("Select an image to start editing", color = Color.White)
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Select an image to start editing", color = Color.White)
+                    }
                 }
             }
 
             HorizontalDivider()
 
-            // --- BOTTOM AREA: CONTROLS (35% Height Window) ---
             Column(
                 modifier = Modifier
                     .weight(0.35f)
                     .fillMaxWidth()
             ) {
-                // Top Global Actions Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -562,7 +496,6 @@ fun ImageEditorScreen(
                     ) { Text("Undo") }
                 }
 
-                // Tab Navigation
                 TabRow(selectedTabIndex = selectedTabIndex) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
@@ -570,10 +503,9 @@ fun ImageEditorScreen(
                             onClick = {
                                 selectedTabIndex = index
                                 selectedTool = when (index) {
-                                    0 -> Tool.DRAW
-                                    1 -> Tool.CIRCLE
-                                    2 -> Tool.TEXT
-                                    3 -> selectedTool
+                                    0 -> Tool.DRAW.ordinal
+                                    1 -> Tool.CIRCLE.ordinal
+                                    2 -> Tool.TEXT.ordinal
                                     else -> selectedTool
                                 }
                             },
@@ -582,7 +514,6 @@ fun ImageEditorScreen(
                     }
                 }
 
-                // Tab Content Panel
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -590,7 +521,7 @@ fun ImageEditorScreen(
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     when (selectedTabIndex) {
-                        0 -> { // DRAW
+                        0 -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = drawLineMode, onCheckedChange = { drawLineMode = it })
                                 Text("Straight Line")
@@ -605,11 +536,14 @@ fun ImageEditorScreen(
                             ColorPickerRow(selectedColor = drawColor) { drawColor = it }
                         }
 
-                         1 -> { // CIRCLE
-                            Text("Circle Size Preset: ${circlePresets[circlePresetIndex].toInt()}", style = MaterialTheme.typography.labelMedium)
+                        1 -> {
+                            Text(
+                                "Circle Size Preset: ${EditorConstants.CIRCLE_PRESETS[circlePresetIndex].toInt()}",
+                                style = MaterialTheme.typography.labelMedium
+                            )
                             Slider(
                                 value = circlePresetIndex.toFloat(),
-                                onValueChange = { 
+                                onValueChange = {
                                     circlePresetIndex = it.roundToInt()
                                 },
                                 valueRange = 0f..9f,
@@ -621,7 +555,7 @@ fun ImageEditorScreen(
                             ColorPickerRow(selectedColor = circleColor) { circleColor = it }
                         }
 
-                        2 -> { // TEXT
+                        2 -> {
                             OutlinedTextField(
                                 value = toolTextString,
                                 onValueChange = { toolTextString = it },
@@ -635,7 +569,7 @@ fun ImageEditorScreen(
                             Slider(
                                 value = toolTextSize,
                                 onValueChange = { toolTextSize = it },
-                                valueRange = 20f..200f
+                                valueRange = EditorConstants.TEXT_SIZE_MIN..EditorConstants.TEXT_SIZE_MAX
                             )
 
                             Text("Text Color", style = MaterialTheme.typography.labelMedium)
@@ -645,7 +579,7 @@ fun ImageEditorScreen(
                             ColorPickerRow(selectedColor = toolTextBgColor) { toolTextBgColor = it }
                         }
 
-                        3 -> { // OVERLAY & GLOBALS
+                        3 -> {
                             Text("Top-Left Overlay", style = MaterialTheme.typography.titleMedium)
                             OutlinedTextField(
                                 value = overlayText,
@@ -657,31 +591,29 @@ fun ImageEditorScreen(
                             Spacer(Modifier.height(8.dp))
                             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
-                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                 Checkbox(checked = borderEnabled, onCheckedChange = { borderEnabled = it })
-                                 Text("Enable Image Border")
-                             }
-                             if (borderEnabled) {
-                                 ColorPickerRow(selectedColor = borderColor) { borderColor = it }
-                             }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = borderEnabled, onCheckedChange = { borderEnabled = it })
+                                Text("Enable Image Border")
+                            }
+                            if (borderEnabled) {
+                                ColorPickerRow(selectedColor = borderColor) { borderColor = it }
+                            }
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
 
-                    // Width slider (controls pen + circle + line)
-                    // Show it in all tabs except overlay (still OK if shown; but keep tidy)
-                    if (selectedTabIndex != 3) {
+                    if (selectedTabIndex != Tool.TEXT.ordinal) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text(
                             "Stroke Width: ${strokeWidth.toInt()}",
                             style = MaterialTheme.typography.labelMedium
                         )
-Slider(
-                                value = strokeWidth,
-                                onValueChange = { strokeWidth = it },
-                                valueRange = 5f..10f
-                            )
+                        Slider(
+                            value = strokeWidth,
+                            onValueChange = { strokeWidth = it },
+                            valueRange = EditorConstants.STROKE_WIDTH_MIN..EditorConstants.STROKE_WIDTH_MAX
+                        )
                     }
                 }
             }
@@ -689,47 +621,23 @@ Slider(
     }
 }
 
-// --- UI HELPERS ---
-
-fun android.graphics.Path.buildSmoothPath(points: List<Offset>) {
-    if (points.size < 2) return
-    moveTo(points[0].x, points[0].y)
-    if (points.size == 2) {
-        lineTo(points[1].x, points[1].y)
-        return
-    }
-    for (i in 0 until points.size - 1) {
-        val p0 = if (i == 0) points[0] else points[i - 1]
-        val p1 = points[i]
-        val p2 = points[i + 1]
-        if (i == points.size - 2) {
-            lineTo(p2.x, p2.y)
-        } else {
-            val p3 = points[i + 2]
-            val control1X = p1.x + (p2.x - p0.x) * 0.25f
-            val control1Y = p1.y + (p2.y - p0.y) * 0.25f
-            val control2X = p2.x - (p3.x - p1.x) * 0.25f
-            val control2Y = p2.y - (p3.y - p1.y) * 0.25f
-            cubicTo(control1X, control1Y, control2X, control2Y, p2.x, p2.y)
-        }
-    }
-}
+// --- DRAW HELPERS ---
 
 fun smoothPath(points: List<Offset>, path: Path) {
     if (points.size < 2) return
     path.reset()
     path.moveTo(points[0].x, points[0].y)
-    
+
     if (points.size == 2) {
         path.lineTo(points[1].x, points[1].y)
         return
     }
-    
+
     for (i in 0 until points.size - 1) {
         val p0 = if (i == 0) points[0] else points[i - 1]
         val p1 = points[i]
         val p2 = points[i + 1]
-        
+
         if (i == points.size - 2) {
             path.lineTo(p2.x, p2.y)
         } else {
@@ -745,79 +653,22 @@ fun smoothPath(points: List<Offset>, path: Path) {
 
 @Composable
 fun ColorPickerRow(selectedColor: Color, onColorSelected: (Color) -> Unit) {
-    val colors = listOf(
-        Color.Red,
-        Color.Blue,
-        Color.Green,
-        Color.White,
-        Color.Black
-    )
     LazyRow(modifier = Modifier.padding(vertical = 4.dp)) {
-        items(colors) { color ->
+        items(EditorConstants.COLOR_PICKER_COLORS) { color ->
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .padding(4.dp)
+                    .size(EditorConstants.COLOR_PICKER_ITEM_SIZE)
+                    .padding(EditorConstants.COLOR_PICKER_ITEM_PADDING)
                     .background(color, CircleShape)
-                    .border(if (color == selectedColor) 3.dp else 1.dp, Color.Gray, CircleShape)
+                    .border(
+                        if (color == selectedColor) 3.dp else 1.dp,
+                        Color.Gray,
+                        CircleShape
+                    )
                     .clickable { onColorSelected(color) }
             )
         }
     }
-}
-
-fun strokePaint(
-    color: Color,
-    strokeWidth: Float,
-    scaleX: Float,
-    cap: android.graphics.Paint.Cap? = null,
-    join: android.graphics.Paint.Join? = null
-): android.graphics.Paint =
-    android.graphics.Paint().apply {
-        this.color = color.toArgb()
-        style = android.graphics.Paint.Style.STROKE
-        this.strokeWidth = strokeWidth * scaleX
-        isAntiAlias = true
-        cap?.let { strokeCap = it }
-        join?.let { strokeJoin = it }
-    }
-
-fun android.graphics.Canvas.drawTextScaled(
-    text: String,
-    position: Offset,
-    textColor: Color,
-    bgColor: Color,
-    textSize: Float,
-    scaleX: Float,
-    scaleY: Float
-) {
-    val textPaint = android.graphics.Paint().apply {
-        color = textColor.toArgb()
-        this.textSize = textSize * scaleX
-        isAntiAlias = true
-    }
-    val bgPaint = android.graphics.Paint().apply {
-        color = bgColor.copy(alpha = 0.5f).toArgb()
-        style = android.graphics.Paint.Style.FILL
-    }
-
-    val fm = textPaint.fontMetrics
-    val textWidth = textPaint.measureText(text)
-    val padding = textSize * scaleX * 0.25f
-
-    val sx = position.x * scaleX
-    val sy = position.y * scaleY
-
-    if (bgColor != Color.Transparent) {
-        drawRect(
-            sx - padding,
-            sy + fm.ascent - padding,
-            sx + textWidth + padding,
-            sy + fm.descent + padding,
-            bgPaint
-        )
-    }
-    drawText(text, sx, sy, textPaint)
 }
 
 fun DrawScope.drawArrow(points: List<Offset>, color: Color, width: Float) {
@@ -833,18 +684,17 @@ fun DrawScope.drawArrow(points: List<Offset>, color: Color, width: Float) {
     }
 
     val angle = atan2((end.y - prev.y).toDouble(), (end.x - prev.x).toDouble())
-    val arrowLen = 50f
 
     val a1 = angle - Math.PI / 6
     val a2 = angle + Math.PI / 6
 
     val p1 = Offset(
-        end.x - (arrowLen * cos(a1)).toFloat(),
-        end.y - (arrowLen * sin(a1)).toFloat()
+        end.x - (EditorConstants.ARROW_LENGTH * cos(a1)).toFloat(),
+        end.y - (EditorConstants.ARROW_LENGTH * sin(a1)).toFloat()
     )
     val p2 = Offset(
-        end.x - (arrowLen * cos(a2)).toFloat(),
-        end.y - (arrowLen * sin(a2)).toFloat()
+        end.x - (EditorConstants.ARROW_LENGTH * cos(a2)).toFloat(),
+        end.y - (EditorConstants.ARROW_LENGTH * sin(a2)).toFloat()
     )
 
     drawLine(color, end, p1, strokeWidth = width, cap = StrokeCap.Round)
@@ -871,7 +721,7 @@ fun DrawScope.drawTextWithBackground(
 
         val fm = paint.fontMetrics
         val textWidth = paint.measureText(text)
-        val padding = textSize * 0.25f
+        val padding = textSize * EditorConstants.OVERLAY_TEXT_PADDING_FACTOR
 
         if (bgColor != Color.Transparent) {
             canvas.nativeCanvas.drawRect(
@@ -920,12 +770,12 @@ fun exportImage(
         format: android.graphics.Bitmap.CompressFormat,
         quality: Int
     ): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
+        val out = ByteArrayOutputStream()
         bmp.compress(format, quality, out)
         return out.toByteArray()
     }
 
-data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: String)
+    data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: String)
 
     fun encodeBestUnderLimit(source: android.graphics.Bitmap, maxBytes: Int): Encoded {
         val candidates = listOf(
@@ -933,8 +783,7 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
             android.graphics.Bitmap.CompressFormat.PNG to Triple("image/png", ".png", 70)
         )
 
-        // Quality sweep (kept close to your original approach)
-        val qualities = listOf(95, 85, 75, 65, 55, 45, 35, 25, 15)
+        val qualities = EditorConstants.EXPORT_QUALITIES
 
         var best: Encoded? = null
 
@@ -949,11 +798,11 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
                 if (best == null) {
                     best = encoded
                 } else {
-                    val bestUnder = best!!.bytes.size <= maxBytes
+                    val bestUnder = best.bytes.size <= maxBytes
                     if (under) {
-                        if (!bestUnder || bytes.size > best!!.bytes.size) best = encoded
+                        if (!bestUnder || bytes.size > best.bytes.size) best = encoded
                     } else {
-                        if (!bestUnder && bytes.size < best!!.bytes.size) best = encoded
+                        if (!bestUnder && bytes.size < best.bytes.size) best = encoded
                     }
                 }
 
@@ -964,7 +813,6 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
         return best ?: Encoded(ByteArray(0), "image/png", ".png")
     }
 
-    // Render overlay/draw actions into a mutable result bitmap.
     val resultBmp = nativeBitmap
         .copyToConfig(android.graphics.Bitmap.Config.ARGB_8888)
         .copy(android.graphics.Bitmap.Config.ARGB_8888, true)
@@ -978,13 +826,22 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
         val borderPaint = android.graphics.Paint().apply {
             color = borderColor.toArgb()
             style = android.graphics.Paint.Style.STROKE
-            strokeWidth = 20f * scaleX
+            strokeWidth = EditorConstants.BORDER_STROKE_WIDTH * scaleX
         }
         canvas.drawRect(0f, 0f, resultBmp.width.toFloat(), resultBmp.height.toFloat(), borderPaint)
     }
 
     if (overlayText.isNotEmpty()) {
-        canvas.drawTextScaled(overlayText, Offset(30f, 100f), Color.White, Color.Black, 80f, scaleX, scaleY)
+        drawTextScaled(
+            canvas,
+            overlayText,
+            Offset(EditorConstants.OVERLAY_POSITION_X, EditorConstants.OVERLAY_POSITION_Y),
+            Color.White,
+            Color.Black,
+            EditorConstants.DEFAULT_TEXT_SIZE,
+            scaleX,
+            scaleY
+        )
     }
 
     val matrix = Matrix().apply { setScale(scaleX, scaleY) }
@@ -992,51 +849,40 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
     for (action in actions) {
         when (action) {
             is DrawAction.DrawPath -> {
-                val paint = strokePaint(action.color, action.strokeWidth, scaleX, android.graphics.Paint.Cap.ROUND, android.graphics.Paint.Join.ROUND)
+                val paint = android.graphics.Paint().apply {
+                    color = action.color.toArgb()
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = action.strokeWidth * scaleX
+                    isAntiAlias = true
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeJoin = android.graphics.Paint.Join.ROUND
+                }
 
                 val androidPath: android.graphics.Path = if (action.isSmooth && action.points.size > 1) {
-                    val src = android.graphics.Path().apply { buildSmoothPath(action.points) }
+                    val src = android.graphics.Path().also { smoothPath(action.points, it) }
                     android.graphics.Path().also { dst ->
-                        src.transform(android.graphics.Matrix().apply { setScale(scaleX, scaleY) }, dst)
+                        src.transform(matrix, dst)
                     }
                 } else {
                     val src = action.path.asAndroidPath()
                     android.graphics.Path().also { dst ->
-                        src.transform(android.graphics.Matrix().apply { setScale(scaleX, scaleY) }, dst)
+                        src.transform(matrix, dst)
                     }
                 }
                 canvas.drawPath(androidPath, paint)
 
                 if (action.hasArrow && action.points.size >= 2) {
-                    val end = action.points.last()
-                    var prev = action.points[maxOf(0, action.points.size - 2)]
-                    for (i in action.points.lastIndex downTo 0) {
-                        if ((end - action.points[i]).getDistance() > 12f) {
-                            prev = action.points[i]
-                            break
-                        }
-                    }
-
-                    val sxEnd = end.x * scaleX
-                    val syEnd = end.y * scaleY
-                    val sxPrev = prev.x * scaleX
-                    val syPrev = prev.y * scaleY
-
-                    val angle = atan2((syEnd - syPrev).toDouble(), (sxEnd - sxPrev).toDouble())
-                    val arrowLen = 50f * scaleX
-
-                    val sx1 = (sxEnd - arrowLen * cos(angle - Math.PI / 6)).toFloat()
-                    val sy1 = (syEnd - arrowLen * sin(angle - Math.PI / 6)).toFloat()
-                    val sx2 = (sxEnd - arrowLen * cos(angle + Math.PI / 6)).toFloat()
-                    val sy2 = (syEnd - arrowLen * sin(angle + Math.PI / 6)).toFloat()
-
-                    canvas.drawLine(sxEnd, syEnd, sx1, sy1, paint)
-                    canvas.drawLine(sxEnd, syEnd, sx2, sy2, paint)
+                    drawArrowOnCanvas(canvas, action.points, scaleX, scaleY, action.color, paint.strokeWidth)
                 }
             }
 
             is DrawAction.HollowCircle -> {
-                val paint = strokePaint(action.color, action.strokeWidth, scaleX)
+                val paint = android.graphics.Paint().apply {
+                    color = action.color.toArgb()
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = action.strokeWidth * scaleX
+                    isAntiAlias = true
+                }
                 canvas.drawCircle(
                     action.center.x * scaleX,
                     action.center.y * scaleY,
@@ -1046,17 +892,24 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
             }
 
             is DrawAction.DrawText -> {
-                canvas.drawTextScaled(action.text, action.position, action.color, action.bgColor, action.textSize, scaleX, scaleY)
+                drawTextScaled(
+                    canvas,
+                    action.text,
+                    action.position,
+                    action.color,
+                    action.bgColor,
+                    action.textSize,
+                    scaleX,
+                    scaleY
+                )
             }
         }
     }
 
-    // 2) Downscale and encode with a size budget.
-    val maxBytes = 3 * 1024 * 1024 // 3 MiB
-    val downscaled = buildScaledBitmapIfNeeded(resultBmp, maxDimension = 2560)
+    val maxBytes = EditorConstants.MAX_EXPORT_BYTES
+    val downscaled = buildScaledBitmapIfNeeded(resultBmp, EditorConstants.MAX_DOWNSCALE_DIMENSION)
     val encoded = encodeBestUnderLimit(downscaled, maxBytes)
 
-    // 3) Write to MediaStore
     val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
     val relativePath = "${Environment.DIRECTORY_PICTURES}/drawthings_outputs/$todayStr/"
 
@@ -1108,3 +961,85 @@ data class Encoded(val bytes: ByteArray, val mimeType: String, val extension: St
     }
 }
 
+fun drawTextScaled(
+    canvas: android.graphics.Canvas,
+    text: String,
+    position: Offset,
+    textColor: Color,
+    bgColor: Color,
+    textSize: Float,
+    scaleX: Float,
+    scaleY: Float
+) {
+    val textPaint = android.graphics.Paint().apply {
+        color = textColor.toArgb()
+        this.textSize = textSize * scaleX
+        isAntiAlias = true
+    }
+    val bgPaint = android.graphics.Paint().apply {
+        color = bgColor.copy(alpha = 0.5f).toArgb()
+        style = android.graphics.Paint.Style.FILL
+    }
+
+    val fm = textPaint.fontMetrics
+    val textWidth = textPaint.measureText(text)
+    val padding = textSize * scaleX * EditorConstants.OVERLAY_TEXT_PADDING_FACTOR
+
+    val sx = position.x * scaleX
+    val sy = position.y * scaleY
+
+    if (bgColor != Color.Transparent) {
+        canvas.drawRect(
+            sx - padding,
+            sy + fm.ascent - padding,
+            sx + textWidth + padding,
+            sy + fm.descent + padding,
+            bgPaint
+        )
+    }
+    canvas.drawText(text, sx, sy, textPaint)
+}
+
+fun drawArrowOnCanvas(
+    canvas: android.graphics.Canvas,
+    points: List<Offset>,
+    scaleX: Float,
+    scaleY: Float,
+    color: Color,
+    strokeWidth: Float
+) {
+    if (points.size < 2) return
+    val end = points.last()
+
+    var prev = points[maxOf(0, points.size - 2)]
+    for (i in points.lastIndex downTo 0) {
+        if ((end - points[i]).getDistance() > 12f) {
+            prev = points[i]
+            break
+        }
+    }
+
+    val sxEnd = end.x * scaleX
+    val syEnd = end.y * scaleY
+    val sxPrev = prev.x * scaleX
+    val syPrev = prev.y * scaleY
+
+    val angle = atan2((syEnd - syPrev).toDouble(), (sxEnd - sxPrev).toDouble())
+    val arrowLen = EditorConstants.ARROW_LENGTH * scaleX
+
+    val sx1 = (sxEnd - arrowLen * cos(angle - Math.PI / 6)).toFloat()
+    val sy1 = (syEnd - arrowLen * sin(angle - Math.PI / 6)).toFloat()
+    val sx2 = (sxEnd - arrowLen * cos(angle + Math.PI / 6)).toFloat()
+    val sy2 = (syEnd - arrowLen * sin(angle + Math.PI / 6)).toFloat()
+
+    val paint = android.graphics.Paint().apply {
+        this.color = color.toArgb()
+        style = android.graphics.Paint.Style.STROKE
+        this.strokeWidth = strokeWidth
+        isAntiAlias = true
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+
+    canvas.drawLine(sxEnd, syEnd, sx1, sy1, paint)
+    canvas.drawLine(sxEnd, syEnd, sx2, sy2, paint)
+}

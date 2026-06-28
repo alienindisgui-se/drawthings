@@ -9,28 +9,32 @@ import androidx.compose.runtime.setValue
 
 @Composable
 fun AppNavigation() {
-    var currentScreen by remember { mutableStateOf("home") }
+    var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
     when (currentScreen) {
-        "home" -> HomeScreen(
-            onEditImage = { currentScreen = "editor" },
-            onCreateCollage = { currentScreen = "collage" }
-        )
-        "editor" -> {
+        is Screen.Home -> {
+            HomeScreen(
+                onEditImage = { currentScreen = Screen.Editor },
+                onCreateCollage = { currentScreen = Screen.Collage }
+            )
+        }
+        is Screen.Editor -> {
             if (selectedImageUri != null) {
                 ImageEditorScreen(
                     initialImageUri = selectedImageUri,
-                    onBack = { currentScreen = "home" }
+                    onBack = { currentScreen = Screen.Home }
                 )
             } else {
                 ImageEditorScreen(
-                    onBack = { currentScreen = "home" }
+                    onBack = { currentScreen = Screen.Home }
                 )
             }
         }
-        "collage" -> CollageScreen(
-            onBack = { currentScreen = "home" }
-        )
+        is Screen.Collage -> {
+            CollageScreen(
+                onBack = { currentScreen = Screen.Home }
+            )
+        }
     }
 }

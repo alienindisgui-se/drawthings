@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,19 +39,20 @@ import java.util.*
 
 @Composable
 fun CollageScreen(onBack: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var loadedBitmaps by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var isExporting by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(selectedUris) {
         loadedBitmaps = selectedUris.map { uri ->
-            loadBitmap(context, uri)
+            loadBitmapWithRotation(context, uri)
         }
     }
 
     val pickMultipleMedia = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10),
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = EditorConstants.MAX_COLLAGE_ITEMS),
         onResult = { uris ->
             selectedUris = uris
         }
@@ -78,15 +80,15 @@ fun CollageScreen(onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-            if (selectedUris.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Select up to 10 images", color = Color.Gray)
-                }
-                return@Column
+        if (selectedUris.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Select up to 10 images", color = Color.Gray)
             }
+            return@Column
+        }
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -105,7 +107,7 @@ fun CollageScreen(onBack: () -> Unit) {
                     contentScale = ContentScale.Crop
                 )
             }
-            if (loadedBitmaps.size < 10) {
+            if (loadedBitmaps.size < EditorConstants.MAX_COLLAGE_ITEMS) {
                 item {
                     Box(
                         modifier = Modifier
@@ -130,10 +132,15 @@ fun CollageScreen(onBack: () -> Unit) {
 
         Button(
             onClick = {
+                if (isExporting) return@Button
                 isExporting = true
-                val collage = createCollage(loadedBitmaps)
-                saveCollageToGallery(context, collage)
-                isExporting = false
+                coroutineScope.launch {
+                    withContext(Dispatchers.IO) {
+                        val collage = createCollage(loadedBitmaps)
+                        saveCollageToGallery(context, collage)
+                    }
+                    isExporting = false
+                }
             },
             enabled = !isExporting && selectedUris.isNotEmpty(),
             modifier = Modifier
@@ -148,14 +155,12 @@ fun CollageScreen(onBack: () -> Unit) {
 
 private suspend fun loadBitmap(context: Context, uri: Uri): Bitmap {
     return withContext(Dispatchers.IO) {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            android.graphics.BitmapFactory.decodeStream(stream)
-        } ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        loadBitmapWithRotation(context, uri) ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
     }
 }
 
 private fun createCollage(bitmaps: List<Bitmap>): Bitmap {
-    val count = bitmaps.size.coerceAtMost(10)
+    val count = bitmaps.size.coerceAtMost(EditorConstants.MAX_COLLAGE_ITEMS)
     val cols = minOf(count, 2)
     val rows = (count + cols - 1) / cols
     val cellW = bitmaps.firstOrNull()?.width ?: 1080
@@ -226,7 +231,7 @@ private fun saveCollageToGallery(context: Context, bitmap: Bitmap) {
     val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
     uri?.let { outUri ->
         context.contentResolver.openOutputStream(outUri)?.use { out ->
-            val maxBytes = 10 * 1024 * 1024
+            val maxBytes = EditorConstants.MAX_COLLAGE_BYTES
             var quality = 90
             var currentBitmap = bitmap
             var encoded: ByteArray
