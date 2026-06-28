@@ -1,6 +1,6 @@
 # DrawThings
 
-[![Version](https://img.shields.io/badge/version-v1.1.0-blue.svg)](https://github.com/your-repo/drawthings)
+[![Version](https://img.shields.io/badge/version-v1.1.0-blue.svg)](https://github.com/alienindisgui-se/drawthings)
 
 Android image annotation app built with **Jetpack Compose**. Pick a photo, draw on it, and export the result directly to your gallery.
 
@@ -12,10 +12,9 @@ A lightweight image editor for quick annotations. Import any photo, add freehand
 
 - **Freehand drawing** with smooth Bézier interpolation
 - **Arrow heads** on strokes
-- **Hollow circles** with preset sizes or free drag scaling
+- **Hollow circles** with preset sizes
 - **Text overlays** with configurable size
 - **Collage export** — 2×2 grid layout for larger outputs
-- **Move & delete window** — tap or drag recent annotations (circles/text) within 30s to reposition or remove them
 - **Color palette** — limited curated set for fast annotation
 - **Auto-compressed export** to gallery, targeting **≤3 MiB** (normal) or **≤10 MiB** (collage)
 
@@ -33,6 +32,7 @@ A lightweight image editor for quick annotations. Import any photo, add freehand
 - **Material 3** theming
 - **MediaStore** export
 - **Gradle** (version catalog)
+- **GitHub Actions** for automated builds and releases
 
 ## How it works
 
@@ -46,10 +46,14 @@ The editor surface is a single `Canvas` composable. Interactions are captured as
 
 ## Release
 
-When preparing a new version:
-1. Update `versionCode` and `versionName` in `app/build.gradle.kts` under `defaultConfig`.
-2. Commit the change, then create a tag matching the version:
+Releases are automated via GitHub Actions:
 
-```bash
-git flow release start v1.2.3
-```
+1. Merge your feature branch to `main`.
+2. Go to **Actions → Create Release Tag → Run workflow**.
+3. Pick a bump level (`patch`, `minor`, `major`) or leave it on `auto` to detect from commit messages.
+4. The workflow creates and pushes the new tag, which triggers the build and publish job.
+
+Commit conventions for auto-detection:
+- `fix:` → patch
+- `feat:` → minor
+- `BREAKING CHANGE:` or `feat!:` → major

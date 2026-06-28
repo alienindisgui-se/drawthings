@@ -1,10 +1,7 @@
 package com.example.drawthings
 
-import android.content.Context
 import android.graphics.Matrix
 import android.net.Uri
-import android.provider.MediaStore
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,9 +39,6 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import java.io.ByteArrayOutputStream
-import java.text.SimpleDateFormat
-import java.util.*
 
 // --- DATA MODELS ---
 
@@ -176,7 +170,8 @@ fun ImageEditorScreen(
                 ) { Text("← Back", color = Color.White) }
 
                 if (imageBitmap != null) {
-                    val ratio = imageBitmap!!.width.toFloat() / imageBitmap!!.height.toFloat()
+                    val bmp = imageBitmap!!
+                    val ratio = bmp.width.toFloat() / bmp.height.toFloat()
                     Box(
                         modifier = Modifier
                             .aspectRatio(ratio)
@@ -184,7 +179,7 @@ fun ImageEditorScreen(
                             .clipToBounds()
                     ) {
                         Image(
-                            bitmap = imageBitmap!!,
+                            bitmap = bmp,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -910,55 +905,12 @@ fun exportImage(
     val downscaled = buildScaledBitmapIfNeeded(resultBmp, EditorConstants.MAX_DOWNSCALE_DIMENSION)
     val encoded = encodeBestUnderLimit(downscaled, maxBytes)
 
-    val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-    val relativePath = "${Environment.DIRECTORY_PICTURES}/drawthings_outputs/$todayStr/"
-
-    val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME)
-    val selection = buildString {
-        append("${MediaStore.Images.Media.RELATIVE_PATH}=?")
-        append(" AND ${MediaStore.Images.Media.DISPLAY_NAME} LIKE '%.%'")
-    }
-    val selectionArgs = arrayOf(relativePath)
-
-    var nextIndex = 1
-    try {
-        context.contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            selectionArgs,
-            null
-        )?.use { cursor ->
-            val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-            while (cursor.moveToNext()) {
-                val name = cursor.getString(nameIdx) ?: continue
-                val dotIdx = name.indexOf('.')
-                if (dotIdx <= 0) continue
-                val numPart = name.substring(0, dotIdx)
-                val n = numPart.toIntOrNull() ?: continue
-                if (n >= nextIndex) nextIndex = n + 1
-            }
-        }
-    } catch (_: Exception) {
-        nextIndex = 1
-    }
-
+    val relativePath = todayOutputPath()
+    val nextIndex = nextMediaStoreIndex(context, relativePath)
     val filename = "$nextIndex${encoded.extension}"
 
-    val contentValues = ContentValues().apply {
-        put(MediaStore.Images.Media.DISPLAY_NAME, filename)
-        put(MediaStore.Images.Media.MIME_TYPE, encoded.mimeType)
-        put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
-    }
-
-    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-    uri?.let { outUri ->
-        context.contentResolver.openOutputStream(outUri)?.use { out ->
-            out.write(encoded.bytes)
-            out.flush()
-        }
-        Toast.makeText(context, "Saved to: $relativePath$filename", Toast.LENGTH_SHORT).show()
-    }
+    insertImageToMediaStore(context, filename, encoded.mimeType, relativePath, encoded.bytes)
+    showSavedToast(context, relativePath, filename)
 }
 
 fun drawTextScaled(

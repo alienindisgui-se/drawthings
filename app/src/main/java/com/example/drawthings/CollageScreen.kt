@@ -1,13 +1,9 @@
 package com.example.drawthings
 
-import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
-import android.os.Environment
-import android.provider.MediaStore
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,11 +27,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.*
 
 @Composable
 fun CollageScreen(onBack: () -> Unit) {
@@ -188,75 +181,11 @@ private fun createCollage(bitmaps: List<Bitmap>): Bitmap {
 }
 
 private fun saveCollageToGallery(context: Context, bitmap: Bitmap) {
-    val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-    val relativePath = "${Environment.DIRECTORY_PICTURES}/drawthings_outputs/$todayStr/"
-
-    val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME)
-    val selection = buildString {
-        append("${MediaStore.Images.Media.RELATIVE_PATH}=?")
-        append(" AND ${MediaStore.Images.Media.DISPLAY_NAME} LIKE '%.%'")
-    }
-    val selectionArgs = arrayOf(relativePath)
-
-    var nextIndex = 1
-    try {
-        context.contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            selectionArgs,
-            null
-        )?.use { cursor ->
-            val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-            while (cursor.moveToNext()) {
-                val name = cursor.getString(nameIdx) ?: continue
-                val dotIdx = name.indexOf('.')
-                if (dotIdx <= 0) continue
-                val numPart = name.substring(0, dotIdx)
-                val n = numPart.toIntOrNull() ?: continue
-                if (n >= nextIndex) nextIndex = n + 1
-            }
-        }
-    } catch (_: Exception) {
-        nextIndex = 1
-    }
-
+    val relativePath = todayOutputPath()
+    val nextIndex = nextMediaStoreIndex(context, relativePath)
     val filename = "collage_$nextIndex.jpg"
-    val contentValues = ContentValues().apply {
-        put(MediaStore.Images.Media.DISPLAY_NAME, filename)
-        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-        put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
-    }
+    val bytes = compressJpegUnderLimit(bitmap, EditorConstants.MAX_COLLAGE_BYTES)
 
-    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-    uri?.let { outUri ->
-        context.contentResolver.openOutputStream(outUri)?.use { out ->
-            val maxBytes = EditorConstants.MAX_COLLAGE_BYTES
-            var quality = 90
-            var currentBitmap = bitmap
-            var encoded: ByteArray
-
-            repeat(12) { attempt ->
-                val baos = java.io.ByteArrayOutputStream()
-                val ok = currentBitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
-                if (!ok) return@repeat
-                encoded = baos.toByteArray()
-
-                if (encoded.size <= maxBytes || quality <= 5) {
-                    out.write(encoded)
-                    out.flush()
-                    return@repeat
-                }
-
-                quality -= 8
-                if (attempt == 3) {
-                    val scale = (maxBytes.toFloat() / encoded.size.toFloat()).coerceIn(0.1f, 1f)
-                    val newW = (currentBitmap.width * scale).toInt().coerceAtLeast(1)
-                    val newH = (currentBitmap.height * scale).toInt().coerceAtLeast(1)
-                    currentBitmap = Bitmap.createScaledBitmap(currentBitmap, newW, newH, true)
-                }
-            }
-        }
-        Toast.makeText(context, "Collage saved!", Toast.LENGTH_SHORT).show()
-    }
+    insertImageToMediaStore(context, filename, "image/jpeg", relativePath, bytes)
+    showSavedToast(context, relativePath, filename)
 }
