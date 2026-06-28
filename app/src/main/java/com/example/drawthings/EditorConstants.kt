@@ -1,5 +1,8 @@
 package com.example.drawthings
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
 object EditorConstants {
     const val MAX_COLLAGE_ITEMS = 10
     const val MAX_EXPORT_BYTES = 3 * 1024 * 1024

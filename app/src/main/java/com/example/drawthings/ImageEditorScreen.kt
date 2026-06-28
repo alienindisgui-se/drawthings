@@ -1,7 +1,10 @@
 package com.example.drawthings
 
+import android.content.Context
 import android.graphics.Matrix
 import android.net.Uri
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +42,10 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import java.io.ByteArrayOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // --- DATA MODELS ---
 
@@ -854,7 +861,7 @@ fun exportImage(
                 }
 
                 val androidPath: android.graphics.Path = if (action.isSmooth && action.points.size > 1) {
-                    val src = android.graphics.Path().also { smoothPath(action.points, it) }
+                    val src = Path().also { smoothPath(action.points, it) }.asAndroidPath()
                     android.graphics.Path().also { dst ->
                         src.transform(matrix, dst)
                     }
