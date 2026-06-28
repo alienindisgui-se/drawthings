@@ -545,8 +545,8 @@ fun ImageEditorScreen(
                                 onValueChange = {
                                     circlePresetIndex = it.roundToInt()
                                 },
-                                valueRange = 0f..9f,
-                                steps = 8,
+                                valueRange = 0f..8f,
+                                steps = 7,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(Modifier.height(8.dp))

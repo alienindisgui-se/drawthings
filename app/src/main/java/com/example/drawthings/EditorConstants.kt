@@ -15,7 +15,7 @@ object EditorConstants {
     const val OVERLAY_TEXT_PADDING_FACTOR = 0.25f
     const val OVERLAY_POSITION_X = 30f
     const val OVERLAY_POSITION_Y = 100f
-    val CIRCLE_PRESETS = listOf(10f, 25f, 40f, 60f, 80f, 100f, 130f, 170f, 220f, 300f)
+    val CIRCLE_PRESETS = listOf(10f, 25f, 40f, 60f, 80f, 100f, 130f, 170f, 220f)
     val EXPORT_QUALITIES = listOf(95, 85, 75, 65, 55, 45, 35, 25, 15)
     val COLOR_PICKER_COLORS = listOf(Color.Red, Color.Blue, Color.Green, Color.White, Color.Black)
     val COLOR_PICKER_ITEM_SIZE = 36.dp
