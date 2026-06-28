@@ -36,6 +36,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -578,31 +579,33 @@ fun ImageEditorScreen(
                             ColorPickerRow(selectedColor = toolTextBgColor) { toolTextBgColor = it }
                         }
 
-                        3 -> {
+                         3 -> {
                             Text("Top-Left Overlay", style = MaterialTheme.typography.titleMedium)
-                            OutlinedTextField(
-                                value = overlayText,
-                                onValueChange = { overlayText = it },
-                                label = { Text("Text/Number") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            Text("Number", style = MaterialTheme.typography.labelMedium)
+                            Spacer(Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                (0..10).forEach { num ->
+                                    OutlinedButton(
+                                        onClick = { overlayText = num.toString() },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(0.dp),
+                                        enabled = overlayText != num.toString()
+                                    ) {
+                                        Text("$num", fontSize = 12.sp)
+                                    }
+                                }
+                            }
                             Spacer(Modifier.height(8.dp))
                             HorizontalDivider(Modifier.padding(vertical = 12.dp))
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = borderEnabled, onCheckedChange = { borderEnabled = it })
-                                Text("Enable Image Border")
-                            }
-                            if (borderEnabled) {
-                                ColorPickerRow(selectedColor = borderColor) { borderColor = it }
-                            }
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
 
-                    if (selectedTabIndex != Tool.TEXT.ordinal) {
+                    if (selectedTabIndex != Tool.TEXT.ordinal && selectedTabIndex != 3) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text(
                             "Stroke Width: ${strokeWidth.toInt()}",
