@@ -589,13 +589,16 @@ fun ImageEditorScreen(
                             ) {
                                 (0..10).forEach { num ->
                                     val selected = overlayText == num.toString()
-                                    ToggleButton(
-                                        checked = selected,
-                                        onCheckedChange = {
+                                    Button(
+                                        onClick = {
                                             overlayText = if (num == 0) "" else num.toString()
                                         },
                                         modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(0.dp)
+                                        contentPadding = PaddingValues(0.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                            contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
                                     ) {
                                         Text("$num", fontSize = 12.sp)
                                     }
