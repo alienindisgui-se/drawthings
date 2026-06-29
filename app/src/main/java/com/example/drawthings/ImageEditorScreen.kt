@@ -588,11 +588,14 @@ fun ImageEditorScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 (0..10).forEach { num ->
-                                    OutlinedButton(
-                                        onClick = { overlayText = num.toString() },
+                                    val selected = overlayText == num.toString()
+                                    ToggleButton(
+                                        checked = selected,
+                                        onCheckedChange = {
+                                            overlayText = if (num == 0) "" else num.toString()
+                                        },
                                         modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(0.dp),
-                                        enabled = overlayText != num.toString()
+                                        contentPadding = PaddingValues(0.dp)
                                     ) {
                                         Text("$num", fontSize = 12.sp)
                                     }
